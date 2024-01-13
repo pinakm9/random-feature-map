@@ -88,12 +88,12 @@ class SurrogateModel_NN:
     @ut.timer
     def learn(self, trajectory, epochs=100, learning_rate=1e-4, beta=4e-5, log_interval=100, save_interval=100,\
               milestones=[1000, 2000], drop=0.1):
-        # size = len(dataloader.dataset)
+        train_size = trajectory.shape[1]
         self.train_log = self.save_folder + '/train_log.csv'
         self.config = self.save_folder + '/config.json'
         log_row = {'iteration': [], 'loss': [], 'runtime': []}
         config = {'device': self.device, 'epochs': epochs, 'initial_rate':learning_rate,\
-                   'milestones': milestones, 'drop': drop}
+                   'milestones': milestones, 'drop': drop, 'train_size': train_size}
         with open(self.config, 'w') as fp:
             json.dump(config, fp)
         if not os.path.exists(self.train_log):
