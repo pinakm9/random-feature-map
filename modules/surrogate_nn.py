@@ -115,6 +115,7 @@ class SurrogateModel_NN:
             optimizer.zero_grad()
             # Backpropagation
             loss.backward()
+            optimizer.step()
             scheduler.step()
                 
 
