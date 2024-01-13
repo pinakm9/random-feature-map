@@ -93,7 +93,8 @@ class SurrogateModel_NN:
         self.config = self.save_folder + '/config.json'
         log_row = {'iteration': [], 'loss': [], 'runtime': []}
         config = {'device': self.device, 'epochs': epochs, 'initial_rate':learning_rate,\
-                   'milestones': milestones, 'drop': drop, 'train_size': train_size}
+                   'milestones': milestones, 'drop': drop, 'train_size': train_size, 'D':self.D,\
+                   'D_r':self.D_r, 'name': self.name, 'beta': beta}
         with open(self.config, 'w') as fp:
             json.dump(config, fp)
         if not os.path.exists(self.train_log):
