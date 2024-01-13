@@ -111,8 +111,8 @@ class SurrogateModel_NN:
 
         for epoch in range(epochs):
             # Compute prediction and loss
-            loss = self.loss_fn(x, y, beta)
             optimizer.zero_grad()
+            loss = self.loss_fn(x, y, beta)
             # Backpropagation
             loss.backward()
             optimizer.step()
