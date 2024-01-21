@@ -10,7 +10,9 @@ import utility as ut
 import sample as sm
 # from scipy.linalg import eigh
 import pandas as pd
+import surrogate as sr
 import json
+import sample as sm
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter 
 import torch
@@ -18,7 +20,9 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset, RandomSampler
 import torch.nn.functional as tfn
 import torch.optim.lr_scheduler as lr_scheduler
+from collections import OrderedDict
 
+DTYPE = 'float32'
 torch.set_default_dtype(torch.float32)
 INFINITY = int(1e100)
 
@@ -47,6 +51,7 @@ class SurrogateModel_NN:
         self.save_folder = save_folder
         if not os.path.exists(self.save_folder):
             os.makedirs(self.save_folder)
+        self.config = {}
 
 
 
@@ -82,6 +87,19 @@ class SurrogateModel_NN:
 
     def loss_fn(self, x, y, beta):
         return torch.norm(self.net(x) - y)**2 + beta*torch.norm(self.net.state_dict()['2.weight'])**2
+    
+
+    def init_with_rf(self, L0, L1, beta, train, partition):
+        self.sampler = sm.MatrixSampler(L0, L1, train.T)
+        W_in, b_in = self.sampler.sample_(partition)
+        rf = sr.SurrogateModel_LR(self.D, self.D_r, W_in, b_in)
+        rf.compute_W(train, beta=beta)
+        W_in = torch.Tensor(rf.W_in.astype(DTYPE))
+        b_in = torch.Tensor(rf.b_in.astype(DTYPE))
+        W = torch.Tensor(rf.W.astype(DTYPE))
+        new_state_dict = OrderedDict({'0.weight': W_in, '0.bias': b_in, '2.weight': W})
+        self.net.load_state_dict(new_state_dict, strict=False)
+        self.config |= {'L0': L0, 'L1': L1, 'partition': partition}
 
 
     @ut.timer
@@ -89,19 +107,21 @@ class SurrogateModel_NN:
               milestones=[1000, 2000], drop=0.1, batch_size=1):
         train_size = trajectory.shape[1] - 1
         self.train_log = self.save_folder + '/train_log.csv'
-        self.config = self.save_folder + '/config.json'
+        self.config_file = self.save_folder + '/config.json'
         log_row = {'iteration': [], 'loss': [], 'runtime': []}
-        config = {'device': self.device, 'steps': steps, 'initial_rate':learning_rate,\
+        self.config |= {'device': self.device, 'steps': steps, 'initial_rate':learning_rate,\
                    'milestones': milestones, 'drop': drop, 'train_size': train_size, 'D':self.D,\
                    'D_r':self.D_r, 'name': self.name, 'beta': beta, 'batch_size': batch_size}
-        with open(self.config, 'w') as fp:
-            json.dump(config, fp)
+        with open(self.config_file, 'w') as fp:
+            json.dump(self.config, fp)
         if not os.path.exists(self.train_log):
             pd.DataFrame(log_row).to_csv(self.train_log, index=None)
         self.beta = beta
-        dataset = TensorDataset(torch.Tensor(trajectory.T[:-1]), torch.Tensor(trajectory.T[:-1]))
+        x = torch.Tensor(trajectory.T[:-1])
+        y = torch.Tensor(trajectory.T[1:])
+        dataset = TensorDataset(x, y)
         sampler = RandomSampler(dataset, replacement=False, num_samples=INFINITY)
-        dataloader = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
+        self.dataloader = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
         # Set the model to training mode - important for batch normalization and dropout layers
         # Unnecessary in this situation but added for best practices
         self.net.train()
@@ -112,7 +132,7 @@ class SurrogateModel_NN:
         for step in range(steps):
             # Compute prediction and loss
             optimizer.zero_grad()
-            x, y = next(dataloader.__iter__())
+            x, y = next(self.dataloader.__iter__())
             loss = self.loss_fn(x, y, beta)
             # Backpropagation
             loss.backward()

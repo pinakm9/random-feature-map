@@ -657,7 +657,7 @@ class GoodRowSampler:
         return np.all((Y < self.M) & (Y > self.m), axis=0)
     
     # def is_row(self, rows):
-    #     i
+    #     if
 
 
 class BadRowSamplerLinear(GoodRowSampler):
