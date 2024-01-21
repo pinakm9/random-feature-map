@@ -656,6 +656,8 @@ class GoodRowSampler:
         Y = np.abs(self.data@(np.array(rows).T) + np.array(bs))
         return np.all((Y < self.M) & (Y > self.m), axis=0)
     
+    # def is_row(self, rows):
+    #     i
 
 
 class BadRowSamplerLinear(GoodRowSampler):
