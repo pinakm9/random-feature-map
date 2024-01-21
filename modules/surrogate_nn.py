@@ -93,7 +93,7 @@ class SurrogateModel_NN:
         log_row = {'iteration': [], 'loss': [], 'runtime': []}
         config = {'device': self.device, 'steps': steps, 'initial_rate':learning_rate,\
                    'milestones': milestones, 'drop': drop, 'train_size': train_size, 'D':self.D,\
-                   'D_r':self.D_r, 'name': self.name, 'beta': beta, 'algorithm': 'SGD', 'batch_size': batch_size}
+                   'D_r':self.D_r, 'name': self.name, 'beta': beta, 'batch_size': batch_size}
         with open(self.config, 'w') as fp:
             json.dump(config, fp)
         if not os.path.exists(self.train_log):
