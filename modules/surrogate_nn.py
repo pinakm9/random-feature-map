@@ -100,7 +100,7 @@ class SurrogateModel_NN:
             pd.DataFrame(log_row).to_csv(self.train_log, index=None)
         self.beta = beta
         dataset = TensorDataset(torch.Tensor(trajectory.T[:-1]), torch.Tensor(trajectory.T[:-1]))
-        sampler = RandomSampler(dataset, replacement=True, num_samples=INFINITY)
+        sampler = RandomSampler(dataset, replacement=False, num_samples=INFINITY)
         dataloader = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
         # Set the model to training mode - important for batch normalization and dropout layers
         # Unnecessary in this situation but added for best practices
