@@ -38,7 +38,7 @@ class SurrogateModel_NN:
             name: name of the surrogate model
             save_folder: folder for saving train log and parameters
         """
-    def __init__(self, D, D_r, name='nn_model', save_folder='.'):        
+    def __init__(self, D, D_r, name='nn', save_folder='.'):        
         self.D = D
         self.D_r = D_r
         self.device = ("cuda"
@@ -119,9 +119,11 @@ class SurrogateModel_NN:
         self.beta = beta
         x = torch.Tensor(trajectory.T[:-1])
         y = torch.Tensor(trajectory.T[1:])
-        dataset = TensorDataset(x, y)
-        sampler = RandomSampler(dataset, replacement=False, num_samples=INFINITY)
-        self.dataloader = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
+        
+        if batch_size != 'GD':
+            dataset = TensorDataset(x, y)
+            sampler = RandomSampler(dataset, replacement=False, num_samples=INFINITY)
+            self.dataloader = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
         # Set the model to training mode - important for batch normalization and dropout layers
         # Unnecessary in this situation but added for best practices
         self.net.train()
@@ -132,7 +134,8 @@ class SurrogateModel_NN:
         for step in range(steps):
             # Compute prediction and loss
             optimizer.zero_grad()
-            x, y = next(self.dataloader.__iter__())
+            if batch_size != 'GD':
+                x, y = next(self.dataloader.__iter__())
             loss = self.loss_fn(x, y, beta)
             # Backpropagation
             loss.backward()

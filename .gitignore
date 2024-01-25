@@ -1,4 +1,5 @@
 data/*
+random-feature-catalogue
 !data/L63-trajectories/
 **/W_in/*
 **/b_in/*

@@ -1,1 +1,0 @@
-{"D": 3, "D_r": 300, "Lyapunov_time": 1.0989010989010988, "dt": 0.02, "w_max": 0.4, "b_max": 4.0, "beta": 4e-05, "error_threshold": 0.05, "sqrt_n_models": 20, "training_points": 20000, "n_repeats": 50, "validation_points": 300}
