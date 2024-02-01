@@ -656,8 +656,32 @@ class GoodRowSampler:
         Y = np.abs(self.data@(np.array(rows).T) + np.array(bs))
         return np.all((Y < self.M) & (Y > self.m), axis=0)
     
-    # def is_row(self, rows):
-    #     if
+    
+    def is_row(self, row, b):
+        if b < self.M and b > self.m:
+            sign = ((np.sign(row) + 1) / 2).astype(int)
+            x_plus = self.get_vector(sign, True)
+            x_minus = self.get_vector(sign, False)
+            if x_plus @ row + b < self.M and x_minus @ row + b > self.m:
+                return True
+            else:
+                return False
+        elif b < -self.m and b > -self.M:
+            sign = ((np.sign(row) + 1) / 2).astype(int)
+            x_plus = self.get_vector(sign, True)
+            x_minus = self.get_vector(sign, False)
+            if x_plus @ row + b < -self.m and x_minus @ row + b > -self.M:
+                return True
+            else:
+                return False
+        else:
+            return False
+        
+    def are_rows(self, rows, bs):
+        flags = np.full(len(rows), True)
+        for i in range(len(rows)):
+            flags[i] = self.is_row(rows[i], bs[i])
+        return flags
 
 
 class BadRowSamplerLinear(GoodRowSampler):
@@ -687,6 +711,20 @@ class BadRowSamplerLinear(GoodRowSampler):
     def test_rows(self, rows, bs):
         Y = np.abs(self.data@(np.array(rows).T) + np.array(bs))
         return np.all((Y < self.m), axis=0)
+    
+    def is_row(self, row, b):
+        if np.abs(b) < self.m:
+            sign = ((np.sign(row) + 1) / 2).astype(int)
+            x_plus = self.get_vector(sign, True)
+            x_minus = self.get_vector(sign, False)
+            if x_plus @ row + b < self.m and x_minus @ row + b > -self.m:
+                return True
+            else:
+                return False
+        else:
+            return False
+        
+    
 
 
 
@@ -768,6 +806,24 @@ class BadRowSamplerExtreme(GoodRowSampler):
     def test_rows(self, rows, bs):
         Y = np.abs(self.data@(np.array(rows).T) + np.array(bs))
         return np.all((Y > self.M), axis=0)
+    
+    def is_row(self, row, b):
+        if b > self.M:
+            sign = ((np.sign(row) + 1) / 2).astype(int)
+            x_minus = self.get_vector(sign, False)
+            if x_minus @ row + b > self.M:
+                return True
+            else:
+                return False
+        elif b < -self.M:
+            sign = ((np.sign(row) + 1) / 2).astype(int)
+            x_plus = self.get_vector(sign, True)
+            if x_plus @ row + b < -self.M:
+                return True
+            else:
+                return False
+        else:
+            return False
     
 
 class MatrixSampler:

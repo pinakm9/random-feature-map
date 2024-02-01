@@ -22,8 +22,8 @@ import torch.nn.functional as tfn
 import torch.optim.lr_scheduler as lr_scheduler
 from collections import OrderedDict
 
-DTYPE = 'float32'
-torch.set_default_dtype(torch.float32)
+DTYPE = 'float64'
+torch.set_default_dtype(torch.float64)
 INFINITY = int(1e100)
 
 class SurrogateModel_NN:
@@ -200,6 +200,10 @@ class SurrogateModel_NN:
         tau_f_se *= (self.dt / self.Lyapunov_time)
 
         return tau_f_rmse, tau_f_se, rmse, se
+    
+    
+    @ut.timer
+    def 
 
 
 
