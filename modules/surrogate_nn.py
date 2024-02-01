@@ -51,7 +51,7 @@ class SurrogateModel_NN:
         self.save_folder = save_folder
         if not os.path.exists(self.save_folder):
             os.makedirs(self.save_folder)
-        self.config = {}
+        self.config = {'name': name}
 
 
 
@@ -111,7 +111,8 @@ class SurrogateModel_NN:
         log_row = {'iteration': [], 'loss': [], 'runtime': []}
         self.config |= {'device': self.device, 'steps': steps, 'initial_rate':learning_rate,\
                    'milestones': milestones, 'drop': drop, 'train_size': train_size, 'D':self.D,\
-                   'D_r':self.D_r, 'name': self.name, 'beta': beta, 'batch_size': batch_size}
+                   'D_r':self.D_r, 'name': self.name, 'beta': beta, 'batch_size': batch_size, 'log_interval':log_interval,\
+                    'save_interval': save_interval}
         with open(self.config_file, 'w') as fp:
             json.dump(self.config, fp)
         if not os.path.exists(self.train_log):
@@ -201,9 +202,47 @@ class SurrogateModel_NN:
 
         return tau_f_rmse, tau_f_se, rmse, se
     
+
+    def get_config(self):
+        self.config = json.loads(self.save_folder + '/config.json')
+    
+
+    def get_save_idx(self):
+        return sorted([int(f.split('_')[-1]) for f in os.listdir(self.save_folder) if f.startswith(self.name)])
+    
+    def load(self, idx):
+        self.net = torch.load(self.save_folder + f'/{self.name}_{idx}')
+
     
     @ut.timer
-    def 
+    def count_row_types(self, m, M, data):
+        idx = self.get_save_idx()
+        df = pd.read_csv(self.save_folder + '/train_log.csv')
+        good_rows_W_in = np.full(len(df['iteration']), np.nan)
+        linear_rows_W_in = np.full(len(df['iteration']), np.nan)
+        extreme_rows_W_in = np.full(len(df['iteration']), np.nan)
+        gs = sm.GoodRowSampler(m, M, data)
+        ls = sm.BadRowSamplerLinear(m, data)
+        es = sm.BadRowSamplerExtreme(M, data)
+        log_interval = df['iteration'][1] - df['iteration'][0] 
+        for i in idx:
+            self.load(i)
+            rows = self.net.state_dict()['0.weight'].numpy()
+            bs = self.net.state_dict()['0.bias'].numpy()
+            j = int(i / log_interval)
+            good_rows_W_in[j] = gs.are_rows(rows, bs).sum()
+            linear_rows_W_in[j] = ls.are_rows(rows, bs).sum()
+            extreme_rows_W_in[j] = es.are_rows(rows, bs).sum()
+        df['good_rows_W_in'] = good_rows_W_in / float(self.D_r)
+        df['linear_rows_W_in'] = linear_rows_W_in /  float(self.D_r)
+        df['extreme_rows_W_in'] = extreme_rows_W_in /  float(self.D_r)
+        df.to_csv(f'{self.save_folder}/train_log.csv', index=None) 
+
+        
+
+
+
+
 
 
 
