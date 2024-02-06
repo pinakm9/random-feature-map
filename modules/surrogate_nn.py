@@ -87,7 +87,7 @@ class SurrogateModel_NN:
         return trajectory
 
     def loss_fn(self, x, y, beta):
-        return torch.sum((self.net(x) - y)**2) + beta*torch.sum((self.net.state_dict()['2.weight'])**2)
+        return torch.sum((self.net(x) - y)**2) + beta*torch.sum(self.net[2].weight**2)
     
 
     def init_with_rf(self, L0, L1, beta, train, partition):
