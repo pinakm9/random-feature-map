@@ -135,7 +135,6 @@ class SurrogateModel_NN:
         lr_scheduler = AdaptiveRateBS(self, **rate_params)
         start = time.time()
         last_loss = np.inf
-        last_save = 0
         step = 0
         while step < steps:
             # Compute prediction and loss
@@ -146,11 +145,6 @@ class SurrogateModel_NN:
             # Backpropagation
             loss.backward()
             self.optimizer.step()
-
-          
-
-         
-            
                 
             # log training 
             if step % log_interval == 0: 
@@ -175,9 +169,9 @@ class SurrogateModel_NN:
                 else:
                     last_loss = loss_ + 0.
             
-                # save model
+            if step % save_interval == 0:
                 torch.save(self.net, self.save_folder + f'/{self.name}_{step}')
-                last_save = step + 0
+            
             
             step += 1
                
