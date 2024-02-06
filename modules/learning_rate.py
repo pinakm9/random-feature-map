@@ -4,6 +4,7 @@ from scipy.signal import argrelextrema
 from sklearn.linear_model import HuberRegressor
 from sklearn.preprocessing import StandardScaler
 
+
 class AdaptiveRate:
     def __init__(self, optimizer, initial_rate, initial_scenario, update_interval=100, del_loss=0.1, fluc_lim=0.2, del_rate=0.1):
         self.optimizer = optimizer
@@ -74,56 +75,61 @@ class AdaptiveRate:
 
         
 
-class AdaptiveRateRS:
-    def  __init__(self, model, max_delta=0.1, min_change=-0.01):
+class AdaptiveRateBS:
+    def  __init__(self, model, max_delta=0.1, min_change=-0.01, constant_rate=True, update_frequency=10000):
         self.model = model
         self.max_delta = max_delta
         self.min_change = min_change
+        self.constant_rate = constant_rate
+        self.update_frequency = update_frequency
+        self.iter = 0
+    
 
-    def descent(self, idx, rate, loss_0, *loss_params):
+    def descent(self, rate, loss_0, *loss_params):
         self.model.optimizer.param_groups[0]['lr'] = rate
-        self.model.load(idx)
-        for _ in range(1000):
-            self.model.optimizer.zero_grad()
-            loss = self.model.loss_fn(*loss_params)
-            # Backpropagation
-            loss.backward()
-            self.model.optimizer.step()
-        # loss = self.model.loss_fn(*loss_params)
-        print(self.model.optimizer.param_groups[0]['lr'], loss.item())
-        return (loss.item()-loss_0) / loss_0
+        self.model.optimizer.zero_grad()
+        loss_ = self.model.loss_fn(*loss_params)
+        # Backpropagation
+        loss_.backward()
+        self.model.optimizer.step()
+        loss_ = self.model.loss_fn(*loss_params)
+        self.iter += 1
+        return (loss_.item()-loss_0) / loss_0
 
 
-    def increase(self, idx, loss_0, *loss_params):
+    def increase(self, loss_0, *loss_params):
         left = self.model.optimizer.param_groups[0]['lr']
         right = left * (1. + 0.)
         change = -1.
         i = 0
         while change < 0.:
-            right *= (1 + self.max_delta)
-            change = self.descent(idx, right, loss_0, *loss_params)
+            right *= (1 + 1.*self.max_delta)
+            change = self.descent(right, loss_0, *loss_params)
             i += 1
             print(f'Attempting to reverse change: attempt #{i}: new_rate: {right:.6f}, change: {change:.6f}')
         i = 0
         while change > self.min_change:
             middle = (left + right) / 2.
-            change = self.descent(idx, middle, loss_0, *loss_params)
+            change = self.descent(middle, loss_0, *loss_params)
             if change < 0.:
                 left = middle + 0.
             else:
                 right = middle + 0.
             i += 1
             print(f'Performing bisection: attempt #{i}: new_rate: {middle:.6f}, change: {change:.6f}')
+            if np.abs(left-right) < 1e-7:
+                break
         return middle
+    
         
-    def decrease(self, idx, loss_0, *loss_params):
+    def decrease(self, loss_0, *loss_params):
         left = self.model.optimizer.param_groups[0]['lr']
         right = left * (1. - 0.)
         change = +1.
         i = 0
         while change > 0.:
-            right *= (1 - self.max_delta)
-            change = self.descent(idx, right, loss_0, *loss_params)
+            right *= (1 - 1.*self.max_delta)
+            change = self.descent(right, loss_0, *loss_params)
             i += 1
             print(f'Attempting to reverse change: attempt #{i}: new_rate: {right:.6f}, change: {change:.6f}')
         i = 0
@@ -131,28 +137,31 @@ class AdaptiveRateRS:
             middle = right
         while change > self.min_change:
             middle = (left + right) / 2.
-            change = self.descent(idx, middle, loss_0, *loss_params)
+            change = self.descent(middle, loss_0, *loss_params)
             if change < 0.:
                 right = middle + 0.
             else:
                 left = middle + 0.
             i += 1
             print(f'Performing bisection: attempt #{i}: new_rate: {middle:.6f}, change: {change:.6f}')
+            if np.abs(left-right) < 1e-7:
+                break
         return middle
 
-    def step(self, idx, sign, loss_0, *loss_params):
-        if sign > 0.:
-            print("--------------------------------------------------------------")
-            print("             Attempting to increase learning rate             ")
-            print("--------------------------------------------------------------")
-            new_rate = self.increase(idx, loss_0, *loss_params)
-        if sign < 0.:
-            print("--------------------------------------------------------------")
-            print("             Attempting to decrease learning rate             ")
-            print("--------------------------------------------------------------")
-            new_rate = self.decrease(idx, loss_0, *loss_params)
-        self.model.optimizer.param_groups[0]['lr'] = new_rate
-        self.model.load(idx)
+    def step(self, sign, loss_0, *loss_params):
+        if not self.constant_rate:
+            if sign > 0.:
+                print("--------------------------------------------------------------")
+                print("             Attempting to increase learning rate             ")
+                print("--------------------------------------------------------------")
+                new_rate = self.increase(loss_0, *loss_params)
+            if sign < 0.:
+                print("--------------------------------------------------------------")
+                print("             Attempting to decrease learning rate             ")
+                print("--------------------------------------------------------------")
+                new_rate = self.decrease(loss_0, *loss_params)
+            self.model.optimizer.param_groups[0]['lr'] = new_rate
+            # self.model.load(idx)
         
         
         

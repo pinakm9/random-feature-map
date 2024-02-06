@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader, TensorDataset, RandomSampler
 import torch.nn.functional as tfn
 import torch.optim.lr_scheduler as lr_scheduler
 from collections import OrderedDict
-from learning_rate import AdaptiveRateRS
+from learning_rate import AdaptiveRateBS
 
 DTYPE = 'float64'
 torch.set_default_dtype(torch.float64)
@@ -132,12 +132,12 @@ class SurrogateModel_NN:
         self.net.train()
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
         # scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=drop)
-        lr_scheduler = AdaptiveRateRS(self, **rate_params)
+        lr_scheduler = AdaptiveRateBS(self, **rate_params)
         start = time.time()
         last_loss = np.inf
         last_save = 0
-        for step in range(steps):
-            
+        step = 0
+        while step < steps:
             # Compute prediction and loss
             self.optimizer.zero_grad()
             if batch_size != 'GD':
@@ -166,20 +166,20 @@ class SurrogateModel_NN:
                 print(f"step: {step} loss: {loss_:>7f} time: {end-start:.4f} lr: {lr:.6f},  change: {change*100:.2f}%")
                 pd.DataFrame(log_row).to_csv(self.train_log, mode='a', index=False, header=False)
                 
-                if change > lr_scheduler.min_change:
+                if step % lr_scheduler.update_frequency == 0 and change > lr_scheduler.min_change:
                     if change < 0.:
                         sign = +1.
                     else:
                         sign = -1.
-                    lr_scheduler.step(step-log_interval, sign, last_loss, x, y, beta)
+                    lr_scheduler.step(sign, last_loss, x, y, beta)
                 else:
                     last_loss = loss_ + 0.
             
                 # save model
                 torch.save(self.net, self.save_folder + f'/{self.name}_{step}')
                 last_save = step + 0
-
-                
+            
+            step += 1
                
             
 
