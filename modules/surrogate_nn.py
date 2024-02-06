@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader, TensorDataset, RandomSampler
 import torch.nn.functional as tfn
 import torch.optim.lr_scheduler as lr_scheduler
 from collections import OrderedDict
-from learning_rate import AdaptiveRate
+from learning_rate import AdaptiveRateRS
 
 DTYPE = 'float64'
 torch.set_default_dtype(torch.float64)
@@ -87,7 +87,7 @@ class SurrogateModel_NN:
         return trajectory
 
     def loss_fn(self, x, y, beta):
-        return torch.norm(self.net(x) - y)**2 + beta*torch.norm(self.net.state_dict()['2.weight'])**2
+        return torch.sum((self.net(x) - y)**2) + beta*torch.sum((self.net.state_dict()['2.weight'])**2)
     
 
     def init_with_rf(self, L0, L1, beta, train, partition):
@@ -109,7 +109,7 @@ class SurrogateModel_NN:
         train_size = trajectory.shape[1] - 1
         self.train_log = self.save_folder + '/train_log.csv'
         self.config_file = self.save_folder + '/config.json'
-        log_row = {'iteration': [], 'loss': [], 'learning_rate': [], 'runtime': []}
+        log_row = {'iteration': [], 'loss': [], 'learning_rate': [], 'runtime': [], 'change': []}
         self.config |= {'device': self.device, 'steps': steps, 'initial_rate':learning_rate,\
                     'train_size': train_size, 'D':self.D,\
                    'D_r':self.D_r, 'name': self.name, 'beta': beta, 'batch_size': batch_size, 'log_interval':log_interval,\
@@ -130,42 +130,57 @@ class SurrogateModel_NN:
         # Set the model to training mode - important for batch normalization and dropout layers
         # Unnecessary in this situation but added for best practices
         self.net.train()
-        optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
         # scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=drop)
-        lr_scheduler = AdaptiveRate(optimizer, learning_rate, 0, **rate_params)
+        lr_scheduler = AdaptiveRateRS(self, **rate_params)
         start = time.time()
-        loss_history = []
+        last_loss = np.inf
+        last_save = 0
         for step in range(steps):
+            
             # Compute prediction and loss
-            optimizer.zero_grad()
+            self.optimizer.zero_grad()
             if batch_size != 'GD':
                 x, y = next(self.dataloader.__iter__())
             loss = self.loss_fn(x, y, beta)
             # Backpropagation
             loss.backward()
-            optimizer.step()
-            loss_history.append(loss.item())
-            if len(loss_history) == lr_scheduler.interval + 1:
-                loss_history.pop(0)
+            self.optimizer.step()
 
-            if step > lr_scheduler.interval and step % lr_scheduler.interval:
-                # print(loss_history)
-                lr_scheduler.step(np.array(loss_history))
-                
+          
 
-            if step % log_interval == 0: 
-                loss = loss.item()
-                end = time.time()
-                lr = optimizer.param_groups[0]['lr']
-                print(f"step: {step} loss: {loss:>7f} time elapsed: {end-start:.4f} learning rate: {lr:.6f}, scenario: {lr_scheduler.past_scenario}, slope: {lr_scheduler.slope}, fluctuations: {lr_scheduler.fluctuations}")
-                log_row['iteration'] = step
-                log_row['loss'] = [loss]
-                log_row['learning_rate'] = [lr]
-                log_row['runtime'] = [end-start]
-                pd.DataFrame(log_row).to_csv(self.train_log, mode='a', index=False, header=False)
+         
             
-            if step % save_interval == 0:
+                
+            # log training 
+            if step % log_interval == 0: 
+                loss_ = loss.item()
+                end = time.time()
+                lr = self.optimizer.param_groups[0]['lr']
+                change = (loss_ - last_loss) / last_loss
+                log_row['iteration'] = step
+                log_row['loss'] = [loss_]
+                log_row['learning_rate'] = [lr]
+                log_row['change'] = [change]
+                log_row['runtime'] = [end-start]
+                print(f"step: {step} loss: {loss_:>7f} time: {end-start:.4f} lr: {lr:.6f},  change: {change*100:.2f}%")
+                pd.DataFrame(log_row).to_csv(self.train_log, mode='a', index=False, header=False)
+                
+                if change > lr_scheduler.min_change:
+                    if change < 0.:
+                        sign = +1.
+                    else:
+                        sign = -1.
+                    lr_scheduler.step(step-log_interval, sign, last_loss, x, y, beta)
+                else:
+                    last_loss = loss_ + 0.
+            
+                # save model
                 torch.save(self.net, self.save_folder + f'/{self.name}_{step}')
+                last_save = step + 0
+
+                
+               
             
 
             
