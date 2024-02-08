@@ -180,8 +180,9 @@ class SurrogateModel_NN:
         if folder is not None:
             df = pd.read_csv(f'{folder}/train_log.csv')
             idx = int(df['iteration'].to_numpy()[-1])
+            last_save = max([int(f.split('_')[-1]) for f in os.listdir(folder) if f.startswith(self.name)])
             loss = df['loss'].to_numpy()[-1]
-            self.net = torch.load(f'{folder}/{self.name}_{idx}')
+            self.net = torch.load(f'{folder}/{self.name}_{last_save}')
             df.to_csv(self.train_log, index=None)
             return idx, loss
         else:
