@@ -1,0 +1,4 @@
+TPU  - 1000 iters - 50.61s - 2.05 cu/hr
+T4   - 1000 iters - 73.07s - 2.05 cu/hr 
+A100 - 1000 iters - 51.51s - 13.08 cu/hr 
+V100 - 1000 iters - 69.84s - 5.45 cu/hr
