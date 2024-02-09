@@ -128,12 +128,13 @@ class SurrogateModel_NN:
             self.dataloader = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
         # Set the model to training mode - important for batch normalization and dropout layers
         # Unnecessary in this situation but added for best practices
-        step, last_loss = self.init_training(last_folder)
+        
         dstep = 0
-        self.net.train()
-        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
+        step, last_loss, time_offset = self.init_training(last_folder)
         # scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=drop)
         lr_scheduler = AdaptiveRateBS(self, **rate_params)
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
+        self.net.train()
         start = time.time()
         while dstep < steps:
             # Compute prediction and loss
@@ -145,11 +146,8 @@ class SurrogateModel_NN:
             loss.backward()
             self.optimizer.step()
 
-            dstep += 1
-            step += 1
-
             # log training 
-            if dstep % log_interval == 0: 
+            if step % log_interval == 0: 
                 loss_ = loss.item()
                 end = time.time()
                 lr = self.optimizer.param_groups[0]['lr']
@@ -158,7 +156,7 @@ class SurrogateModel_NN:
                 self.log_row['loss'] = [loss_]
                 self.log_row['learning_rate'] = [lr]
                 self.log_row['change'] = [change]
-                self.log_row['runtime'] = [end-start]
+                self.log_row['runtime'] = [end - start + time_offset]
                 print(f"step: {step} loss: {loss_:>7f} time: {end-start:.4f} lr: {lr:.6f},  change: {change*100:.2f}%")
                 pd.DataFrame(self.log_row).to_csv(self.train_log, mode='a', index=False, header=False)
                 
@@ -171,8 +169,11 @@ class SurrogateModel_NN:
                 else:
                     last_loss = loss_ + 0.
             
-            if dstep % save_interval == 0:
+            if step % save_interval == 0:
                 torch.save(self.net, self.save_folder + f'/{self.name}_{step}')
+            
+            dstep += 1
+            step += 1
             
 
             
@@ -183,11 +184,15 @@ class SurrogateModel_NN:
             last_save = max([int(f.split('_')[-1]) for f in os.listdir(folder) if f.startswith(self.name)])
             loss = df['loss'].to_numpy()[-1]
             self.net = torch.load(f'{folder}/{self.name}_{last_save}')
+            start = df['runtime'].to_numpy()[-1]
             df.to_csv(self.train_log, index=None)
-            return idx, loss
+            return idx+1, loss, start
         else:
             pd.DataFrame(self.log_row).to_csv(self.train_log, index=None)
-            return 0, np.inf
+            return 0, np.inf, 0.
+        
+    def read(self):
+        return pd.read_csv(f'{self.save_folder}/train_log.csv')
 
     
     @ut.timer
@@ -256,15 +261,17 @@ class SurrogateModel_NN:
         gs = sm.GoodRowSampler(m, M, data)
         ls = sm.BadRowSamplerLinear(m, data)
         es = sm.BadRowSamplerExtreme(M, data)
-        log_interval = df['iteration'][1] - df['iteration'][0] 
+        log_interval = df['iteration'].to_numpy()[1] - df['iteration'].to_numpy()[0] 
+        j = 0
         for i in idx:
             self.load(i)
             rows = self.net.state_dict()['0.weight'].numpy()
             bs = self.net.state_dict()['0.bias'].numpy()
-            j = int(i / log_interval)
+            # j = int(i / log_interval) -1 
             good_rows_W_in[j] = gs.are_rows(rows, bs).sum()
             linear_rows_W_in[j] = ls.are_rows(rows, bs).sum()
             extreme_rows_W_in[j] = es.are_rows(rows, bs).sum()
+            j += 1
         df['good_rows_W_in'] = good_rows_W_in / float(self.D_r)
         df['linear_rows_W_in'] = linear_rows_W_in /  float(self.D_r)
         df['extreme_rows_W_in'] = extreme_rows_W_in /  float(self.D_r)
@@ -291,11 +298,12 @@ class SurrogateModel_NN:
         df = pd.read_csv(self.save_folder + '/train_log.csv')
         train_sq_err = np.full(len(df['iteration']), np.nan)
         log_interval = df['iteration'][1] - df['iteration'][0] 
+        j = 0
         for i in idx:
             self.load(i)
-            j = int(i / log_interval)
+            # j = int(i / log_interval)
             train_sq_err[j] = self.compute_training_error(train, train_index, length)
-            # print(train_sq_err[j])
+            j += 1
    
         df['train_sq_err'] = train_sq_err
         df.to_csv(f'{self.save_folder}/train_log.csv', index=None) 
