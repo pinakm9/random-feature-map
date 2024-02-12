@@ -52,7 +52,7 @@ class SurrogateModel_NN:
         self.save_folder = save_folder
         if not os.path.exists(self.save_folder):
             os.makedirs(self.save_folder)
-        self.config = {'name': name}
+        self.config = {'D': D, 'D_r': D_r, 'name': name}
 
 
 
@@ -111,8 +111,7 @@ class SurrogateModel_NN:
         self.config_file = self.save_folder + '/config.json'
         self.log_row = {'iteration': [], 'loss': [], 'learning_rate': [], 'runtime': [], 'change': []}
         self.config |= {'device': self.device, 'steps': steps, 'initial_rate':learning_rate,\
-                    'train_size': train_size, 'D':self.D,\
-                   'D_r':self.D_r, 'name': self.name, 'beta': beta, 'batch_size': batch_size, 'log_interval':log_interval,\
+                    'train_size': train_size, 'name': self.name, 'beta': beta, 'batch_size': batch_size, 'log_interval':log_interval,\
                     'save_interval': save_interval}
         self.config |= rate_params
         with open(self.config_file, 'w') as fp:
@@ -193,10 +192,14 @@ class SurrogateModel_NN:
         
     def read(self):
         return pd.read_csv(f'{self.save_folder}/train_log.csv')
+    
+    def write_config(self):
+        with open(f'{self.save_folder}/config.json', 'w') as fp:
+            json.dump(self.config, fp)
 
     
     @ut.timer
-    def compute_tau_f(self, test, error_threshold=0.05, dt=0.02, Lyapunov_time=1/0.91):
+    def compute_tau_f_(self, test, error_threshold=0.05, dt=0.02, Lyapunov_time=1/0.91):
         """
         Description: computes forecast time tau_f for the computed surrogate model
 
@@ -247,35 +250,53 @@ class SurrogateModel_NN:
     def get_save_idx(self):
         return sorted([int(f.split('_')[-1]) for f in os.listdir(self.save_folder) if f.startswith(self.name)])
     
+    def save(self, idx):
+        torch.save(self.net, self.save_folder + f'/{self.name}_{idx}')
+    
     def load(self, idx):
         self.net = torch.load(self.save_folder + f'/{self.name}_{idx}')
 
     
     @ut.timer
-    def count_row_types(self, m, M, data):
-        idx = self.get_save_idx()
+    def count_row_types(self, skip, m, M, data):
+        idx = self.get_save_idx()[::skip]
         df = pd.read_csv(self.save_folder + '/train_log.csv')
-        good_rows_W_in = np.full(len(df['iteration']), np.nan)
-        linear_rows_W_in = np.full(len(df['iteration']), np.nan)
-        extreme_rows_W_in = np.full(len(df['iteration']), np.nan)
+        iteration = list(df['iteration'])
+        good_rows_W_in = np.full(len(iteration), np.nan)
+        linear_rows_W_in = np.full(len(iteration), np.nan)
+        extreme_rows_W_in = np.full(len(iteration), np.nan)
         gs = sm.GoodRowSampler(m, M, data)
         ls = sm.BadRowSamplerLinear(m, data)
         es = sm.BadRowSamplerExtreme(M, data)
-        log_interval = df['iteration'].to_numpy()[1] - df['iteration'].to_numpy()[0] 
-        j = 0
+
         for i in idx:
             self.load(i)
             rows = self.net.state_dict()['0.weight'].numpy()
             bs = self.net.state_dict()['0.bias'].numpy()
-            # j = int(i / log_interval) -1 
+            j = iteration.index(i) 
             good_rows_W_in[j] = gs.are_rows(rows, bs).sum()
             linear_rows_W_in[j] = ls.are_rows(rows, bs).sum()
             extreme_rows_W_in[j] = es.are_rows(rows, bs).sum()
-            j += 1
+            
         df['good_rows_W_in'] = good_rows_W_in / float(self.D_r)
         df['linear_rows_W_in'] = linear_rows_W_in /  float(self.D_r)
         df['extreme_rows_W_in'] = extreme_rows_W_in /  float(self.D_r)
-        df.to_csv(f'{self.save_folder}/train_log.csv', index=None) 
+        df.to_csv(f'{self.save_folder}/train_log.csv', index=None)
+
+        fig =  plt.figure(figsize=(5, 5))
+        ax = fig.add_subplot(111)
+
+        iteration_, gr = self.squeeze(iteration, df['good_rows_W_in'].to_numpy())
+        ax.plot(iteration_, gr, label='good')
+        iteration_, lr = self.squeeze(iteration, df['linear_rows_W_in'].to_numpy())
+        ax.plot(iteration_, lr, label='linear')
+        iteration_, er = self.squeeze(iteration, df['extreme_rows_W_in'].to_numpy())
+        ax.plot(iteration_, er, label='extreme')
+        ax.legend()
+        ax.set_xlabel('iteration')
+        ax.set_ylabel('fraction of rows')
+        plt.savefig(f'{self.save_folder}/row_evolution.png')
+
 
         
     def compute_training_error(self, train, train_index, length):
@@ -293,22 +314,106 @@ class SurrogateModel_NN:
 
 
     @ut.timer
-    def compute_train_error(self, train, train_index, length):
-        idx = self.get_save_idx()
+    def compute_train_error(self, skip, train, train_index, length):
+        idx = self.get_save_idx()[::skip]
         df = pd.read_csv(self.save_folder + '/train_log.csv')
-        train_sq_err = np.full(len(df['iteration']), np.nan)
-        log_interval = df['iteration'][1] - df['iteration'][0] 
-        j = 0
+        iteration = list(df['iteration'].to_numpy())
+        train_sq_err = np.full(len(iteration), np.nan)
+    
         for i in idx:
             self.load(i)
-            # j = int(i / log_interval)
+            j = iteration.index(i)
             train_sq_err[j] = self.compute_training_error(train, train_index, length)
-            j += 1
    
         df['train_sq_err'] = train_sq_err
-        df.to_csv(f'{self.save_folder}/train_log.csv', index=None) 
+        df.to_csv(f'{self.save_folder}/train_log.csv', index=None)
 
+        fig =  plt.figure(figsize=(5, 5))
+        ax = fig.add_subplot(111)
+        iteration_, train_sq_err_ = self.squeeze(iteration, train_sq_err)
+        ax.plot(iteration_, train_sq_err_)
+        ax.set_xlabel('iteration')
+        ax.set_ylabel('training error')
+        plt.savefig(f'{self.save_folder}/train_error_evolution.png')
 
+    
+    @ut.timer
+    def compute_tau_f(self, skip, train, test, error_threshold=0.05, dt=0.02, Lyapunov_time=1/0.91, rf_init=False):
+        idx = self.get_save_idx()[::skip]
+        df = pd.read_csv(self.save_folder + '/train_log.csv')
+        iteration = list(df['iteration'].to_numpy())
+        tau = np.full(len(iteration), np.nan)
+        loss = np.full(len(iteration), np.nan)
+        x = torch.Tensor(train.T[:-1])
+        y = torch.Tensor(train.T[1:])
+        df = self.read()
+        self.get_config()
+        for i in idx:
+            print(f'working on index #{i}')
+            self.load(i)
+            if i==0 and rf_init==True:
+                self.structure(train)
+            j = iteration.index(i)
+            tau[j] = self.compute_tau_f_(test, error_threshold, dt, Lyapunov_time)[1].mean()
+            loss[j] = self.loss_fn(x, y, self.config['beta']).item()
+
+        df['tau_f_se'] = tau
+        df.to_csv(f'{self.save_folder}/train_log.csv', index=None)
+        
+        fig = plt.figure(figsize=(10, 5))
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+
+        iteration_, tau_ = self.squeeze(iteration, tau)
+
+        ax1.scatter(iteration_, tau_, s=1)
+        ax1.plot(iteration_, tau_)
+        ax1.set_xlabel('iteration')
+        ax1.set_ylabel(r'$\tau_f$')
+
+        iteration_, loss_ = self.squeeze(iteration, loss)
+        ax2.scatter(iteration_, np.log(loss_), s=1)
+        ax2.plot(iteration_, np.log(loss_))
+        ax2.set_xlabel('iteration')
+        ax2.set_ylabel(r'log loss')
+        plt.savefig(f'{self.save_folder}/tau_f_loss_evolution.png')
+        
+
+    def get_config(self):
+        with open('{}/config.json'.format(self.save_folder), 'r') as f:
+            self.config = json.loads(f.read())
+       
+
+    def squeeze(self, x, y):
+        n = len(x)
+        xl, yl = [], []
+        for i in range(n):
+            if not np.isnan(y[i]):
+                xl.append(x[i])
+                yl.append(y[i])
+        return xl, yl
+    
+    def structure(self, train):
+        self.get_config()
+        identity_r = np.identity(self.D_r)
+        Uo = train[:, 1:]
+        R = np.tanh(self.net[0].weight.detach().numpy() @ train[:, :-1] + self.net[0].bias.detach().numpy()[:, np.newaxis])
+        W = (Uo@R.T) @ np.linalg.solve(R@R.T + self.config['beta']*identity_r, identity_r)
+        self.net[2].weight = torch.nn.Parameter(torch.Tensor(W))
+
+    def compute_bunching(self, L0, L1, train, threshold=0.2):
+        phi = np.abs(self.net[0].weight.detach().numpy()@train + self.net[0].bias.detach().numpy()[:, np.newaxis])
+        maxs = np.max(phi, axis=1)
+        mins = np.min(phi, axis=1)
+        dL = L1 - L0
+        self.config['L0'] = L0
+        self.config['L1'] = L1 
+        self.config['bunching_threshold'] = threshold
+        bunching = []
+        for i in range(self.D_r):
+            bunching.append((maxs[i]-L0)/dL < threshold or (L1-mins[i])/dL < threshold)
+        return maxs, mins, np.array(bunching, dtype=bool)
+        
 
 
 class SurrogateModel_NN_multi(SurrogateModel_NN):
