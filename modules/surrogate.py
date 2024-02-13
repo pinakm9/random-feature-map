@@ -87,7 +87,7 @@ class SurrogateModel_LR:
         """
         Description: one step forecasts for multiple inputs
         """
-        return self.W @ (self.W_in @ u + self.b_in[:, np.newaxis])
+        return self.W @ np.tanh(self.W_in @ u + self.b_in[:, np.newaxis])
     
     
     def multistep_forecast(self, u, n_steps):
