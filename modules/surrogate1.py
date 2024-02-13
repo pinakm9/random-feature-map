@@ -111,46 +111,6 @@ class BatchStrategy_SMLR:
 
 
 
-    # @ut.timer
-    def compute_error(self, test):
-        """
-        Description: computes forecast time tau_f for the computed surrogate model
-
-        Args:
-            test: list of test trajectories
-        """
-        validation_ = self.test[validation_index]
-        prediction = model.multistep_forecast(validation_[:, 0], self.validation_points)
-        se_ = np.linalg.norm(validation_ - prediction, axis=0)**2 / np.linalg.norm(validation_, axis=0)**2
-        mse_ = np.cumsum(se_) / np.arange(1, len(se_)+1)
-   
-        
-        l = np.argmax(mse_ > self.error_threshold)
-        if l == 0:
-            tau_f_rmse = self.validation_points
-        else:
-            tau_f_rmse = l-1
-
-
-        l = np.argmax(se_ > self.error_threshold)
-        if l == 0:
-            tau_f_se = self.validation_points
-        else:
-            tau_f_se = l-1
-        
-        rmse = np.sqrt(mse_[-1])
-        se = se_.mean()
- 
-            
-        
-        tau_f_rmse *= (self.dt / self.Lyapunov_time)
-        tau_f_se *= (self.dt / self.Lyapunov_time)
-
-        return tau_f_rmse, tau_f_se, rmse, se
-
-        
-
-
     def count_zero_rows_entry(self, matrix, limits):
         new_matrix = matrix.copy()
         new_matrix[(new_matrix > limits[0]) & (new_matrix < limits[1])] = 0. 
@@ -445,10 +405,98 @@ class BatchStrategyAnalyzer_SMLR:
             end = time.time()
             print(f'Time taken for batch of error computations = {end-start:.2f}s')
             l += self.n_repeats
+            
         data['train_sq_err'] = new_data['train_sq_err']
         data['train_sq_err_penalty'] = new_data['train_sq_err_penalty']
         data['mean_sq_err_penalty'] = new_data['mean_sq_err_penalty']
         data.to_csv(f'{self.save_folder}/batch_data.csv', index=False)
+
+    
+    def train_loss(self, l, train, train_index, length):
+        model = self.get_model(l)
+        train_index = int(train_index)
+        return l, np.sum((model.forecast_m(train[:, train_index:train_index+length]) - train[:, train_index+1:train_index+length+1])**2) + self.beta * np.sum(model.W**2)
+    
+
+    def test_loss(self, l, test, dt=0.02, Lyapunov_time=1./0.91, penalty=True):
+        model = self.get_model(l)
+        half = round(0.5*Lyapunov_time/dt)
+        one = round(Lyapunov_time/dt)
+        two = round(2.0*Lyapunov_time/dt)
+        loss_half = 0.
+        loss_one = 0.
+        loss_two = 0.
+        n = len(test)
+        if penalty:
+            penalty = self.beta * np.sum(model.W**2)
+        else:
+            penalty = 0.
+        for trajectory in test:
+            path = model.forecast_m(trajectory[:, :two+1])
+            loss_half += np.sum((path[:, :half] - trajectory[:, 1:half+1])**2) + penalty
+            loss_one += np.sum((path[:, :one] - trajectory[:, 1:one+1])**2) + penalty
+            loss_two += np.sum((path[:, :two] - trajectory[:, 1:two+1])**2) + penalty
+        return l, loss_half/n, loss_one/n, loss_two/n
+
+
+    @ut.timer
+    def compute_train_loss(self, train, percents=50):
+        l = 0
+        data = self.get_data()
+        new_data = {}
+        new_data['train_loss'] = []
+        dx = 100./percents
+        percents = np.arange(0., 100. + dx, dx) / 100.
+        for percent in percents:
+            print(f'Computing loss for {percent} good rows ...')
+            experiment_indices = list(range(l, l+self.n_repeats))
+            train_indices = data['train_index'].to_numpy()[l: l+self.n_repeats]
+            start = time.time()
+            with parallel_config(backend='threading', n_jobs=-1):
+                results = Parallel(n_jobs=-1)(delayed(self.train_loss)(experiment_indices[k], train, train_indices[k], self.training_points) for k in range(self.n_repeats))
+            results = np.array(results).T
+            new_data['train_loss'] += list(results[1])
+            end = time.time()
+            print(f'Time taken for batch of training loss computations = {end-start:.2f}s')
+            l += self.n_repeats
+        
+        data['train_loss'] = new_data['train_loss']
+        data.to_csv(f'{self.save_folder}/batch_data.csv', index=False)
+
+
+    @ut.timer
+    def compute_test_loss(self, test, percents=50, dt=0.02, Lyapunov_time=1/0.91, penalty=True):
+        l = 0
+        data = self.get_data()
+        new_data = {}
+        
+        new_data['test_loss_half'] = []
+        new_data['test_loss_one'] = []
+        new_data['test_loss_two'] = []
+
+        dx = 100./percents
+        percents = np.arange(0., 100. + dx, dx) / 100.
+
+        for percent in percents: 
+            print(f'Computing loss for {percent} good rows ...')
+            experiment_indices = list(range(l, l+self.n_repeats))
+            start = time.time()
+            with parallel_config(backend='threading', n_jobs=-1):
+                results = Parallel(n_jobs=-1)(delayed(self.test_loss)(experiment_indices[k], test, dt, Lyapunov_time, penalty) for k in range(self.n_repeats))
+            results = np.array(results).T
+            print(len(results[0]))
+            new_data['test_loss_half'] += list(results[0])
+            new_data['test_loss_one'] += list(results[1])
+            new_data['test_loss_two'] += list(results[2])
+            end = time.time()
+            print(f'Time taken for batch of testing loss computations = {end-start:.2f}s')
+            l += self.n_repeats
+        
+        data['test_loss_half'] = new_data['test_loss_half']
+        data['test_loss_one'] = new_data['test_loss_one']
+        data['test_loss_two'] = new_data['test_loss_two']
+        data.to_csv(f'{self.save_folder}/batch_data.csv', index=False)
+
 
 
     @ut.timer

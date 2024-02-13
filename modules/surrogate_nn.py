@@ -410,9 +410,13 @@ class SurrogateModel_NN:
         self.config['L1'] = L1 
         self.config['bunching_threshold'] = threshold
         bunching = []
+        left_bunching = []
+        right_bunching = []
         for i in range(self.D_r):
             bunching.append((maxs[i]-L0)/dL < threshold or (L1-mins[i])/dL < threshold)
-        return maxs, mins, np.array(bunching, dtype=bool)
+            left_bunching.append((maxs[i]-L0)/dL < threshold)
+            right_bunching.append((L1-mins[i])/dL < threshold)
+        return maxs, mins, np.array(bunching, dtype=bool), np.array(left_bunching), np.array(right_bunching)
         
 
 

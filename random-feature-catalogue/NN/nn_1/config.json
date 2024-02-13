@@ -1,1 +1,0 @@
-{"device": "cuda", "epochs": 1000000, "initial_rate": 0.0001, "milestones": [10000, 100000], "drop": 0.5, "train_size": 20000, "D": 3, "D_r": 300, "name": "nn_0", "beta": 4e-05}

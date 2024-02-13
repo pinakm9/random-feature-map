@@ -275,7 +275,7 @@ class MicroscopeExtremeToGoodViewer:
     def get_nonzero_cols(self, l, limits):
         W = self.get_W(l)
         W[(W > limits[0]) & (W < limits[1])] = 0. 
-        return (W.any(axis=0))
+        return W.T.any(1)
 
     def get_zero_sep(self, l, cols):
         zc = ~cols
@@ -576,9 +576,6 @@ class MicroscopeMildToGoodViewer(MicroscopeLinearToGoodViewer):
         super().__init__(save_folder, n_plot_rows)
     
 
-    
-
-   
     def plot2(self, l, limits):
         fig = plt.figure(figsize=(15, 5))
         ax_1 = fig.add_subplot(311)
