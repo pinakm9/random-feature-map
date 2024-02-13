@@ -485,9 +485,9 @@ class BatchStrategyAnalyzer_SMLR:
                 results = Parallel(n_jobs=-1)(delayed(self.test_loss)(experiment_indices[k], test, dt, Lyapunov_time, penalty) for k in range(self.n_repeats))
             results = np.array(results).T
             print(len(results[0]))
-            new_data['test_loss_half'] += list(results[0])
-            new_data['test_loss_one'] += list(results[1])
-            new_data['test_loss_two'] += list(results[2])
+            new_data['test_loss_half'] += list(results[1])
+            new_data['test_loss_one'] += list(results[2])
+            new_data['test_loss_two'] += list(results[3])
             end = time.time()
             print(f'Time taken for batch of testing loss computations = {end-start:.2f}s')
             l += self.n_repeats
