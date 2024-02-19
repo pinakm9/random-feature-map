@@ -24,7 +24,7 @@ class BatchStrategy_SMLR:
     Description: runs batches of surrogate models using uniformly random features. Initialization involves picking 
     either good, linear or extreme rows randomly.
     """
-    def __init__(self, save_folder, D, D_r, n_repeats, beta, error_theshold, train, test, dt, Lyapunov_time=1.,\
+    def __init__(self, save_folder, D, D_r, n_repeats, beta, error_theshold, train, test, dt=0.02, Lyapunov_time=1./0.91,\
                  L0=0.4, L1=3.5, percents=3, row_selection='good_linear_extreme', train_option='constant',\
                  limits_W_in=[-0.1, 0.1], limits_W=[-0.5, 0.5]):
         """
@@ -108,6 +108,44 @@ class BatchStrategy_SMLR:
         linear = int((100. - percent) * self.D_r / 200.)
         extreme = self.D_r - good - linear
         return [good, linear, extreme]
+
+
+
+
+    @ut.timer
+    def compute_error(self, model, validation_index):
+        """
+        Description: computes forecast time tau_f for the computed surrogate model
+    
+        """
+        validation_ = self.test[validation_index]
+        prediction = model.multistep_forecast(validation_[:, 0], self.validation_points)
+        se_ = np.linalg.norm(validation_ - prediction, axis=0)**2 / np.linalg.norm(validation_, axis=0)**2
+        mse_ = np.cumsum(se_) / np.arange(1, len(se_)+1)
+
+
+        l = np.argmax(mse_ > self.error_threshold)
+        if l == 0:
+            tau_f_rmse = self.validation_points
+        else:
+            tau_f_rmse = l-1
+
+
+        l = np.argmax(se_ > self.error_threshold)
+        if l == 0:
+            tau_f_se = self.validation_points
+        else:
+            tau_f_se = l-1
+
+        rmse = np.sqrt(mse_[-1])
+        se = se_.mean()
+
+
+
+        tau_f_rmse *= (self.dt / self.Lyapunov_time)
+        tau_f_se *= (self.dt / self.Lyapunov_time)
+
+        return tau_f_rmse, tau_f_se, rmse, se
 
 
 
@@ -227,6 +265,33 @@ class BatchStrategy_SMLR:
                     .to_csv(file_path, mode='a', index=False, header=not os.path.exists(file_path))
         del data         
 
+
+    @ut.timer
+    def run_single_partition(self, partition, save_data=False):
+        """
+        Description: runs all the experiments, documents W_in, b_in, W, forecast times and errors
+        """
+        l = 0
+        file_path = '{}/batch_data.csv'.format(self.save_folder)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        columns = ['l', 'train_index', 'test_index', '||W_in||', '||b_in||', '||W||', 'good_rows_W_in', 'linear_rows_W_in', 'extreme_rows_W_in',\
+                   'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
+                   '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W']
+
+        print(f'Generating parameters for {partition[0]/self.D_r:.2f}% good rows ...')
+        W_ins, b_ins = self.sampler.sample_parallel(partition, self.n_repeats)
+        print('Running experiments ...')
+        experiment_indices = list(range(l, l+self.n_repeats))
+        train_indices = np.random.randint(self.train.shape[1] - self.training_points, size=self.n_repeats)
+        test_indices = np.random.randint(len(self.test), size=self.n_repeats)
+        data = Parallel(n_jobs=-1)(delayed(self.run_single)\
+                            (experiment_indices[k], train_indices[k], test_indices[k], W_ins[k], b_ins[k], partition, save_data)\
+                            for k in range(self.n_repeats))
+        print('Documenting results ...')#, len(columns), len(data[0]))
+        pd.DataFrame(data, columns=columns, dtype=float)\
+                    .to_csv(file_path, mode='a', index=False, header=not os.path.exists(file_path))
+        del data  
 
          
             
@@ -437,18 +502,43 @@ class BatchStrategyAnalyzer_SMLR:
             loss_one += np.sum((path[:, :one] - trajectory[:, 1:one+1])**2) + penalty
             loss_two += np.sum((path[:, :two] - trajectory[:, 1:two+1])**2) + penalty
         return l, loss_half/n, loss_one/n, loss_two/n
+    
+    
+    
+    def test_loss_single(self, l, test, test_index, dt=0.02, Lyapunov_time=1./0.91, penalty=True):
+        model = self.get_model(l)
+        half = round(0.5*Lyapunov_time/dt)
+        one = round(Lyapunov_time/dt)
+        two = round(2.0*Lyapunov_time/dt)
+        loss_half = 0.
+        loss_one = 0.
+        loss_two = 0.
+        n = len(test)
+        if penalty:
+            penalty = self.beta * np.sum(model.W**2)
+        else:
+            penalty = 0.
+        trajectory = test[int(test_index)]
+        path = model.forecast_m(trajectory[:, :two+1])
+        loss_half = np.sum((path[:, :half] - trajectory[:, 1:half+1])**2) + penalty
+        loss_one = np.sum((path[:, :one] - trajectory[:, 1:one+1])**2) + penalty
+        loss_two = np.sum((path[:, :two] - trajectory[:, 1:two+1])**2) + penalty
+        return l, loss_half, loss_one, loss_two
 
 
+
+    
+    
     @ut.timer
-    def compute_train_loss(self, train, percents=50):
+    def compute_train_loss(self, train):
         l = 0
         data = self.get_data()
         new_data = {}
         new_data['train_loss'] = []
-        dx = 100./percents
-        percents = np.arange(0., 100. + dx, dx) / 100.
-        for percent in percents:
-            print(f'Computing loss for {percent} good rows ...')
+        total_exps = len(data['l'])
+      
+        for percent in range(int(total_exps/self.n_repeats)):
+            print(f'Computing loss for percent id: {percent} ...')
             experiment_indices = list(range(l, l+self.n_repeats))
             train_indices = data['train_index'].to_numpy()[l: l+self.n_repeats]
             start = time.time()
@@ -465,7 +555,7 @@ class BatchStrategyAnalyzer_SMLR:
 
 
     @ut.timer
-    def compute_test_loss(self, test, percents=50, dt=0.02, Lyapunov_time=1/0.91, penalty=True):
+    def compute_test_loss(self, test, dt=0.02, Lyapunov_time=1/0.91, penalty=True):
         l = 0
         data = self.get_data()
         new_data = {}
@@ -474,11 +564,10 @@ class BatchStrategyAnalyzer_SMLR:
         new_data['test_loss_one'] = []
         new_data['test_loss_two'] = []
 
-        dx = 100./percents
-        percents = np.arange(0., 100. + dx, dx) / 100.
-
-        for percent in percents: 
-            print(f'Computing loss for {percent} good rows ...')
+        total_exps = len(data['l'])
+      
+        for percent in range(int(total_exps/self.n_repeats)):
+            print(f'Computing loss for percent id: {percent} ...')
             experiment_indices = list(range(l, l+self.n_repeats))
             start = time.time()
             with parallel_config(backend='threading', n_jobs=-1):
@@ -495,6 +584,40 @@ class BatchStrategyAnalyzer_SMLR:
         data['test_loss_half'] = new_data['test_loss_half']
         data['test_loss_one'] = new_data['test_loss_one']
         data['test_loss_two'] = new_data['test_loss_two']
+        data.to_csv(f'{self.save_folder}/batch_data.csv', index=False)
+
+
+    @ut.timer
+    def compute_test_loss_single(self, test, dt=0.02, Lyapunov_time=1/0.91, penalty=True):
+        l = 0
+        data = self.get_data()
+        new_data = {}
+        
+        new_data['test_loss_half_single'] = []
+        new_data['test_loss_one_single'] = []
+        new_data['test_loss_two_single'] = []
+
+        total_exps = len(data['l'])
+      
+        for percent in range(int(total_exps/self.n_repeats)):
+            print(f'Computing loss for percent id: {percent} ...')
+            experiment_indices = list(range(l, l+self.n_repeats))
+            test_indices = data['test_index'].to_numpy()[l: l+self.n_repeats]
+            start = time.time()
+            with parallel_config(backend='threading', n_jobs=-1):
+                results = Parallel(n_jobs=-1)(delayed(self.test_loss_single)(experiment_indices[k], test, test_indices[k], dt, Lyapunov_time, penalty) for k in range(self.n_repeats))
+            results = np.array(results).T
+            print(len(results[0]))
+            new_data['test_loss_half_single'] += list(results[1])
+            new_data['test_loss_one_single'] += list(results[2])
+            new_data['test_loss_two_single'] += list(results[3])
+            end = time.time()
+            print(f'Time taken for batch of testing loss computations = {end-start:.2f}s')
+            l += self.n_repeats
+        
+        data['test_loss_half_single'] = new_data['test_loss_half_single']
+        data['test_loss_one_single'] = new_data['test_loss_one_single']
+        data['test_loss_two_single'] = new_data['test_loss_two_single']
         data.to_csv(f'{self.save_folder}/batch_data.csv', index=False)
 
 
