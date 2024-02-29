@@ -39,10 +39,15 @@ class SurrogateModel_LR:
         self.D_r = D_r
         if isinstance(W_in_fn, np.ndarray):
             self.W_in = W_in_fn
+        elif isinstance(W_in_fn, (float, int)):
+            self.W_in = uniform_W_in(D, D_r, W_in_fn)
         else:
             self.W_in = W_in_fn(D, D_r)
+
         if isinstance(b_in_fn, np.ndarray):
             self.b_in = b_in_fn
+        elif isinstance(b_in_fn, (float, int)):
+            self.b_in = uniform_b_in(D_r, b_in_fn)
         else:
             self.b_in = b_in_fn(D_r)
         self.W = W
@@ -324,6 +329,7 @@ class BatchRunAnalyzer_SMLR:
             config = json.loads(f.read())
         for key in config:
             setattr(self, key, config[key])
+        self.n_models = len(self.get_data()['||W||'].to_numpy())
 
     
     def get_wb(self):
@@ -414,8 +420,10 @@ class BatchRunAnalyzer_SMLR:
     
     @ut.timer
     def count(self, validation, limits_in, limits, threshold=3.5):
-        zr, zc = np.zeros(self.n_models), np.zeros(self.n_models)
-        bf = np.zeros_like(zc)
+        zr = np.zeros(self.n_models)
+        zr = zr.reshape(self.sqrt_n_models, self.sqrt_n_models, -1)
+        zc = np.zeros_like(zr)
+        bf = np.zeros_like(zr)
         avg_abs_col_sum = np.zeros_like(zc)
         n_good_rows = np.zeros_like(zc)
         xlims = self.get_xlims(validation)

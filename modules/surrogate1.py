@@ -118,34 +118,58 @@ class BatchStrategy_SMLR:
         Description: computes forecast time tau_f for the computed surrogate model
     
         """
-        validation_ = self.test[validation_index]
-        prediction = model.multistep_forecast(validation_[:, 0], self.validation_points)
-        se_ = np.linalg.norm(validation_ - prediction, axis=0)**2 / np.linalg.norm(validation_, axis=0)**2
-        mse_ = np.cumsum(se_) / np.arange(1, len(se_)+1)
+        if validation_index is not None:
+            validation_ = self.test[validation_index]
+            prediction = model.multistep_forecast(validation_[:, 0], self.validation_points)
+            se_ = np.linalg.norm(validation_ - prediction, axis=0)**2 / np.linalg.norm(validation_, axis=0)**2
+            mse_ = np.cumsum(se_) / np.arange(1, len(se_)+1)
 
 
-        l = np.argmax(mse_ > self.error_threshold)
-        if l == 0:
-            tau_f_rmse = self.validation_points
+            l = np.argmax(mse_ > self.error_threshold)
+            if l == 0:
+                tau_f_rmse = self.validation_points
+            else:
+                tau_f_rmse = l-1
+
+
+            l = np.argmax(se_ > self.error_threshold)
+            if l == 0:
+                tau_f_se = self.validation_points
+            else:
+                tau_f_se = l-1
+
+            rmse = np.sqrt(mse_[-1])
+            se = se_.mean()
+
+            tau_f_rmse *= (self.dt / self.Lyapunov_time)
+            tau_f_se *= (self.dt / self.Lyapunov_time)
+            return tau_f_rmse, tau_f_se, rmse, se
+
         else:
-            tau_f_rmse = l-1
+            tau_f_rmse, tau_f_se, rmse, se = 0., 0., 0., 0.
+            for validation_ in self.test:
+                prediction = model.multistep_forecast(validation_[:, 0], self.validation_points)
+                se_ = np.linalg.norm(validation_ - prediction, axis=0)**2 / np.linalg.norm(validation_, axis=0)**2
+                mse_ = np.cumsum(se_) / np.arange(1, len(se_)+1)
 
 
-        l = np.argmax(se_ > self.error_threshold)
-        if l == 0:
-            tau_f_se = self.validation_points
-        else:
-            tau_f_se = l-1
-
-        rmse = np.sqrt(mse_[-1])
-        se = se_.mean()
+                l = np.argmax(mse_ > self.error_threshold)
+                if l == 0:
+                    tau_f_rmse += self.validation_points * (self.dt / self.Lyapunov_time)
+                else:
+                    tau_f_rmse += (l-1) * (self.dt / self.Lyapunov_time)
 
 
+                l = np.argmax(se_ > self.error_threshold)
+                if l == 0:
+                    tau_f_se += self.validation_points * (self.dt / self.Lyapunov_time)
+                else:
+                    tau_f_se += (l-1) * (self.dt / self.Lyapunov_time)
 
-        tau_f_rmse *= (self.dt / self.Lyapunov_time)
-        tau_f_se *= (self.dt / self.Lyapunov_time)
-
-        return tau_f_rmse, tau_f_se, rmse, se
+                rmse += np.sqrt(mse_[-1])
+                se += se_.mean()
+            n = len(self.test)
+            return tau_f_rmse/n, tau_f_se/n, rmse/n, se/n
 
 
 
@@ -236,6 +260,47 @@ class BatchStrategy_SMLR:
             print(f'Time taken for batch of experiments = {end-start:.2f}s')
             l += self.n_repeats
 
+
+
+
+    @ut.timer
+    def run_uniform(self, w, b, save_data=False, batch_size=500):
+        """
+        Description: runs all the experiments, documents W_in, b_in, W, forecast times and errors
+        """
+        l = 0
+        file_path = '{}/batch_data.csv'.format(self.save_folder)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        columns = ['l', 'train_index', 'test_index', '||W_in||', '||b_in||', '||W||', 'good_rows_W_in', 'linear_rows_W_in', 'extreme_rows_W_in',\
+                   'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
+                   '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W']
+        
+        print('Running experiments ...')
+        for batch in range(int(self.n_repeats/batch_size)):
+            print('Working on batch {} ...'.format(batch))
+            experiment_indices = list(range(l, l+batch_size))
+            train_indices = np.random.randint(self.train.shape[1] - self.training_points, size=batch_size)
+            test_indices = np.random.randint(len(self.test), size=batch_size)
+            start = time.time()
+            data = Parallel(n_jobs=-1)(delayed(self.run_single)\
+                                (experiment_indices[k], 0, None, w, b, [0, 0, 0], save_data)\
+                                for k in range(batch_size))
+            print('Documenting results ...')#, len(columns), len(data[0]))
+            pd.DataFrame(data, columns=columns, dtype=float)\
+                        .to_csv(file_path, mode='a', index=False, header=not os.path.exists(file_path))
+            del data         
+            # for k in range(batch_size):
+            #     self.run_single(experiment_indices[k], train_indices[k], test_indices[k], W_ins[k], b_ins[k], partition)
+            end = time.time()
+            print(f'Time taken for batch of experiments = {end-start:.2f}s')
+            start =  end + 0.
+            l += batch_size
+        
+
+
+
+
     @ut.timer
     def run_single_percent(self, percent_id, save_data=False):
         """
@@ -267,7 +332,7 @@ class BatchStrategy_SMLR:
 
 
     @ut.timer
-    def run_single_partition(self, partition, save_data=False):
+    def run_single_partition(self, partition, save_data=False, batch_size=500):
         """
         Description: runs all the experiments, documents W_in, b_in, W, forecast times and errors
         """
@@ -279,19 +344,21 @@ class BatchStrategy_SMLR:
                    'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
                    '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W']
 
-        print(f'Generating parameters for {partition[0]/self.D_r:.2f}% good rows ...')
-        W_ins, b_ins = self.sampler.sample_parallel(partition, self.n_repeats)
-        print('Running experiments ...')
-        experiment_indices = list(range(l, l+self.n_repeats))
-        train_indices = np.random.randint(self.train.shape[1] - self.training_points, size=self.n_repeats)
-        test_indices = np.random.randint(len(self.test), size=self.n_repeats)
-        data = Parallel(n_jobs=-1)(delayed(self.run_single)\
-                            (experiment_indices[k], train_indices[k], test_indices[k], W_ins[k], b_ins[k], partition, save_data)\
-                            for k in range(self.n_repeats))
-        print('Documenting results ...')#, len(columns), len(data[0]))
-        pd.DataFrame(data, columns=columns, dtype=float)\
-                    .to_csv(file_path, mode='a', index=False, header=not os.path.exists(file_path))
-        del data  
+        for batch in range(int(self.n_repeats/batch_size)):
+            print(f'Working on batch {batch} ...')
+            W_ins, b_ins = self.sampler.sample_parallel(partition, batch_size)
+            print('Running experiments ...')
+            experiment_indices = list(range(l, l+batch_size))
+            train_indices = np.random.randint(self.train.shape[1] - self.training_points, size=batch_size)
+            test_indices = np.random.randint(len(self.test), size=batch_size)
+            data = Parallel(n_jobs=-1)(delayed(self.run_single)\
+                                (experiment_indices[k], train_indices[k], test_indices[k], W_ins[k], b_ins[k], partition, save_data)\
+                                for k in range(batch_size))
+            print('Documenting results ...')#, len(columns), len(data[0]))
+            pd.DataFrame(data, columns=columns, dtype=float)\
+                        .to_csv(file_path, mode='a', index=False, header=not os.path.exists(file_path))
+            del data
+            l += batch_size  
 
          
             
