@@ -355,6 +355,50 @@ class MicroscopeExtremeToGoodViewer:
                       # zero cols in good part={gc}, # zero cols in bad part={bc}')
         plt.show()
 
+    def plot3(self, l, c0, c1, l0, l1, limits=[-0.5, 0.5], file_path=None):
+        fig = plt.figure(figsize=(15, 5))
+        ax_1 = fig.add_subplot(311)
+        ax_2 = fig.add_subplot(312)
+        ax_3 = fig.add_subplot(313)
+        axs = [ax_1, ax_2, ax_3]
+
+
+        W = np.abs(self.get_W(l))
+        cols = self.get_nonzero_cols(l, limits)
+        colors = ['None' if e else 'red' for e in cols]
+        gc, bc = self.get_zero_sep(l, cols)
+        
+        for i in range(3):
+            c = np.max(W[i, :])
+            axs[i].axvline(l, c='black')
+            axs[i].plot(range(1, l+1), W[i, :l]/c, c=c0, label=l0)
+            axs[i].plot(range(l, self.D_r+1), W[i, l-1:]/c, c=c1, label=l1)
+            axs[i].scatter(range(1, self.D_r+1), W[i, :]/c, c=colors, s=10)
+            axs[i].set_ylabel(r'$\frac{{|\mathbf{{W}}_{{{0}}}^{{(s)}}|}}{{\|\mathbf{{W}}_{{{0}}}^{{(s)}}\|_\infty}}$'.format(i+1), fontsize=18)
+            axs[i].set_xlim((0, self.D_r+1))
+            
+        
+        # locs, labels = axs[-1].get_xticks(), axs[-1].get_xticklabels()
+        # locs = list(locs) + [l]
+        # labels = list(labels) + ['s']
+        # axs[-1].set_xticks(locs)
+        # axs[-1].set_xticklabels(labels)
+        # #(f's={l}', x=float(l)/self.D_r)
+        axs[-1].set_xlabel('column')
+        axs[0].set_title(f's={l}')
+        axs[0].legend()
+        bf = self.data['avg_bad_features'][l]
+        er = self.data['rmse'][l]**2
+        wn = self.data['||W||'][l]
+        # zc = self.D_r-cols.sum()
+
+        # fig.suptitle(f'avg bad features={bf:.2f}, error={er:.2f}, # zero cols={zc}, ||W||={wn:.2f}\n\
+        #               # zero cols in good part={gc}, # zero cols in bad part={bc}')
+        if file_path is not None:
+            plt.savefig(file_path, dpi=300, bbox_inches='tight')
+        plt.show()
+
+    
 
 
     def view2(self, limits=None):

@@ -529,7 +529,7 @@ class InequalitySampler2(InequalitySampler0):
 
 class InequalitySampler3(InequalitySampler0):
     """
-    A class for sampling from w.x_+ + b < l+ and w.x_- + b < l-
+    A class for sampling from w.x_+ + b < l+ and w.x_- + b > l-
     """
     def __init__(self, x_minus, x_plus, l_minus, l_plus, b, signs) -> None:
         self.x_plus = x_plus
