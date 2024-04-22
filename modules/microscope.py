@@ -420,7 +420,8 @@ class MicroscopeExtremeToGoodViewer:
             axs[i].axvline(l, c='black')
             axs[i].plot(range(1, l+1), W[0, :l]/c, c=c0, label=l0)
             axs[i].plot(range(l, self.D_r+1), W[0, l-1:]/c, c=c1, label=l1)
-            axs[i].scatter(range(1, self.D_r+1), W[0, :]/c, c=colors, s=10)
+            x = np.array([j for j, e in enumerate(cols) if not e])
+            axs[i].scatter(x+1, [W[0, j]/c for j in x], c='red', s=10, label=f'{limits[1]:.0f}-small')
             axs[i].set_ylabel(r'$\frac{{|\mathbf{{W}}_{{{0}}}^{{(s)}}|}}{{\|\mathbf{{W}}_{{{0}}}^{{(s)}}\|_\infty}}$'.format(1), fontsize=18)
             axs[i].set_xlim((1, self.D_r))
             axs[i].set_title(f's={l}')
@@ -435,8 +436,61 @@ class MicroscopeExtremeToGoodViewer:
         # #(f's={l}', x=float(l)/self.D_r)
         axs[0].set_xticks([])
         axs[1].set_xticks([])
-        axs[-1].set_xlabel('column')
+        axs[-1].set_xlabel('column', fontsize=11)
         axs[0].legend()
+        bf = self.data['avg_bad_features'][l]
+        er = self.data['rmse'][l]**2
+        wn = self.data['||W||'][l]
+        # zc = self.D_r-cols.sum()
+
+        # fig.suptitle(f'avg bad features={bf:.2f}, error={er:.2f}, # zero cols={zc}, ||W||={wn:.2f}\n\
+        #               # zero cols in good part={gc}, # zero cols in bad part={bc}')
+        if file_path is not None:
+            plt.savefig(file_path, dpi=300, bbox_inches='tight')
+        plt.show()
+
+
+    def plot5(self, ls, c0, c1, l0, l1, limits=[-0.5, 0.5], file_path=None):
+        fig = plt.figure(figsize=(12, 7))
+        ax_1 = fig.add_subplot(311)
+        ax_2 = fig.add_subplot(312)
+        ax_3 = fig.add_subplot(313)
+        axs = [ax_1, ax_2, ax_3]
+
+
+        
+        
+        for i in range(3):
+            l = ls[i]
+            W = np.abs(self.get_W(l))
+            cols = self.get_nonzero_cols(l, limits)
+            colors = ['None' if e else 'red' for e in cols]
+            gc, bc = self.get_zero_sep(l, cols)
+            c = np.max(W)
+            y1 = np.array([max(W[:, j])/c for j in range(l)])
+            y2 = np.array([max(W[:, j])/c for j in range(l-1, self.D_r)])
+            
+            axs[i].axvline(l, c='black')
+            axs[i].plot(range(1, l+1), y1, label=l0, c=c0)
+            axs[i].plot(range(l, self.D_r+1), y2, label=l1, c=c1)
+            x = np.array([j for j, e in enumerate(cols) if not e])
+            axs[i].scatter(x+1, [max(W[:, j])/c for j in x], c=u'red', s=100, label=r'$\mathcal{N}^0$', marker='.')
+            axs[i].set_ylabel(r'$\frac{{\|\mathbf{{W}}^{{j}}\|_\infty}}{{\|\mathbf{{W}}\|_\infty}}$', fontsize=18)
+            axs[i].set_xlim((1, self.D_r))
+            axs[i].set_title(f'k={l}')
+            # axs[i].legend()
+            
+        
+        # locs, labels = axs[-1].get_xticks(), axs[-1].get_xticklabels()
+        # locs = list(locs) + [l]
+        # labels = list(labels) + ['s']
+        # axs[-1].set_xticks(locs)
+        # axs[-1].set_xticklabels(labels)
+        # #(f's={l}', x=float(l)/self.D_r)
+        axs[0].set_xticks([])
+        axs[1].set_xticks([])
+        axs[-1].set_xlabel('j', fontsize=13)
+        axs[0].legend(fontsize=13)
         bf = self.data['avg_bad_features'][l]
         er = self.data['rmse'][l]**2
         wn = self.data['||W||'][l]
@@ -455,6 +509,16 @@ class MicroscopeExtremeToGoodViewer:
         good_rows = widgets.IntSlider(min=0, max=self.D_r-1, step=1, layout=widgets.Layout(width='1100px'),\
                                          description='good rows', continuous_update=False)
         out = widgets.interactive(lambda l: self.plot2(l, limits), l=good_rows)
+        output = out.children[-1]
+        output.layout.height = '600px'
+        return out
+    
+    def view5(self, limits=None):
+        if limits is None:
+            limits = self.limits_W
+        good_rows = widgets.IntSlider(min=0, max=self.D_r-1, step=1, layout=widgets.Layout(width='1100px'),\
+                                         description='good rows', continuous_update=False)
+        out = widgets.interactive(lambda l: self.plot5(l, limits), l=good_rows)
         output = out.children[-1]
         output.layout.height = '600px'
         return out

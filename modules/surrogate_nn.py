@@ -338,8 +338,11 @@ class SurrogateModel_NN:
 
     
     @ut.timer
-    def compute_tau_f(self, skip, train, test, error_threshold=0.05, dt=0.02, Lyapunov_time=1/0.91, rf_init=False):
-        idx = self.get_save_idx()[::skip]
+    def compute_tau_f(self, skip, train, test, error_threshold=0.05, dt=0.02, Lyapunov_time=1/0.91, rf_init=False, end=None):
+        if end is None:
+            idx = self.get_save_idx()[::skip]
+        else:
+            idx = self.get_save_idx()[:end:skip]
         df = pd.read_csv(self.save_folder + '/train_log.csv')
         iteration = list(df['iteration'].to_numpy())
         tau = np.full(len(iteration), np.nan)
@@ -360,23 +363,26 @@ class SurrogateModel_NN:
         df['tau_f_se'] = tau
         df.to_csv(f'{self.save_folder}/train_log.csv', index=None)
         
-        fig = plt.figure(figsize=(10, 5))
-        ax1 = fig.add_subplot(121)
-        ax2 = fig.add_subplot(122)
+        # fig = plt.figure(figsize=(10, 5))
+        # ax1 = fig.add_subplot(121)
+        # ax2 = fig.add_subplot(122)
 
-        iteration_, tau_ = self.squeeze(iteration, tau)
+        # iteration_, tau_ = self.squeeze(iteration, tau)
 
-        ax1.scatter(iteration_, tau_, s=1)
-        ax1.plot(iteration_, tau_)
-        ax1.set_xlabel('iteration')
-        ax1.set_ylabel(r'$\tau_f$')
+        # ax1.scatter(iteration_, tau_, s=1)
+        # ax1.plot(iteration_, tau_)
+        # ax1.set_xlabel('iteration')
+        # ax1.set_ylabel(r'$\tau_f$')
 
-        iteration_, loss_ = self.squeeze(iteration, loss)
-        ax2.scatter(iteration_, np.log(loss_), s=1)
-        ax2.plot(iteration_, np.log(loss_))
-        ax2.set_xlabel('iteration')
-        ax2.set_ylabel(r'log loss')
-        plt.savefig(f'{self.save_folder}/tau_f_loss_evolution.png')
+        # iteration_, loss_ = self.squeeze(iteration, loss)
+        # ax2.scatter(iteration_, np.log(loss_), s=1)
+        # ax2.plot(iteration_, np.log(loss_))
+        # ax2.set_xlabel('iteration')
+        # ax2.set_ylabel(r'log loss')
+        # plt.savefig(f'{self.save_folder}/tau_f_loss_evolution.png')
+        np.save(f'{self.save_folder}/tau_f_se.npy', tau)
+        np.save(f'{self.save_folder}/loss.npy', loss)
+        np.save(f'{self.save_folder}/iteration.npy', np.array(iteration))
         
 
     def get_config(self):

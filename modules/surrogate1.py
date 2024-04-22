@@ -170,6 +170,32 @@ class BatchStrategy_SMLR:
                 se += se_.mean()
             n = len(self.test)
             return tau_f_rmse/n, tau_f_se/n, rmse/n, se/n
+        
+
+    @ut.timer
+    def compute_train_error(self, model, validation_index, length):
+        """
+        Description: computes forecast time tau_f on training data for the computed surrogate model
+    
+        """
+        validation_ = self.train[:, validation_index: validation_index+length]
+        prediction = model.multistep_forecast(validation_[:, 0], length)
+        se_ = np.linalg.norm(validation_ - prediction, axis=0)**2 / np.linalg.norm(validation_, axis=0)**2
+
+
+        l = np.argmax(se_ > self.error_threshold)
+        if l == 0:
+            tau_f_se = length
+        else:
+            tau_f_se = l-1
+
+        se = se_.mean()
+
+        tau_f_se *= (self.dt / self.Lyapunov_time)
+        return tau_f_se
+
+    
+
 
 
 
@@ -192,6 +218,69 @@ class BatchStrategy_SMLR:
                    self.count_bad_features(model, np.tanh(threshold)) / self.D_r,\
                    np.sum(np.abs(model.W), axis=0).mean() / self.D_r
         
+
+    # @ut.timer
+    def run_single(self, l, i, j, W_in, b_in, partition, save_data=False):
+        """
+        Description: runs experiments for a single value of (w, b) multiple times 
+
+        Args: 
+            l: index/identifier for the single experiment
+            i: index to select training data
+            j: index to select validation data
+            W_in: parameters for W_in
+            b_in: parameters for b_in
+            partition: partition of row types of W_in
+            save_data: boolean determing wheather to save model
+        """
+        model = sr.SurrogateModel_LR(self.D, self.D_r, W_in, b_in)
+        model.compute_W(self.train[:, i:i+self.training_points], beta=self.beta);
+   
+        if save_data:
+            np.save(self.W_in_folder + '/W_in_{}.npy'.format(l), model.W_in)
+            np.save(self.b_in_folder + '/b_in_{}.npy'.format(l), model.b_in)
+            np.save(self.W_folder + '/W_{}.npy'.format(l), model.W)
+        
+        results = [l, i, j, np.linalg.norm(model.W_in)/self.D_r,\
+                   np.linalg.norm(model.b_in)/self.D_r, np.linalg.norm(model.W)/self.D_r] +\
+                   [part/float(self.D_r) for part in partition]
+        results += self.compute_error(model, j)
+        results += self.count(model)
+
+        return results
+    
+
+    def run_single_(self, l, i, j, W_in, b_in, partition, length, save_data=False):
+        """
+        Description: runs experiments for a single value of (w, b) multiple times 
+
+        Args: 
+            l: index/identifier for the single experiment
+            i: index to select training data
+            j: index to select validation data
+            W_in: parameters for W_in
+            b_in: parameters for b_in
+            partition: partition of row types of W_in
+            length: length for computing training tau_f
+            save_data: boolean determing wheather to save model
+        """
+        model = sr.SurrogateModel_LR(self.D, self.D_r, W_in, b_in)
+        model.compute_W(self.train[:, i:i+self.training_points], beta=self.beta);
+   
+        if save_data:
+            np.save(self.W_in_folder + '/W_in_{}.npy'.format(l), model.W_in)
+            np.save(self.b_in_folder + '/b_in_{}.npy'.format(l), model.b_in)
+            np.save(self.W_folder + '/W_{}.npy'.format(l), model.W)
+        
+        results = [l, i, j, np.linalg.norm(model.W_in)/self.D_r,\
+                   np.linalg.norm(model.b_in)/self.D_r, np.linalg.norm(model.W)/self.D_r] +\
+                   [part/float(self.D_r) for part in partition]
+        results += self.compute_error(model, j)
+        results += self.count(model)
+        results += [self.compute_train_error(model, i, length)]
+
+        return results
+    
 
     # @ut.timer
     def run_single(self, l, i, j, W_in, b_in, partition, save_data=False):
@@ -302,7 +391,7 @@ class BatchStrategy_SMLR:
 
 
     @ut.timer
-    def run_single_percent(self, percent_id, save_data=False):
+    def run_single_percent(self, percent_id, length, save_data=False):
         """
         Description: runs all the experiments, documents W_in, b_in, W, forecast times and errors
         """
@@ -312,7 +401,7 @@ class BatchStrategy_SMLR:
             os.remove(file_path)
         columns = ['l', 'train_index', 'test_index', '||W_in||', '||b_in||', '||W||', 'good_rows_W_in', 'linear_rows_W_in', 'extreme_rows_W_in',\
                    'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
-                   '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W']
+                   '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W', 'tau_f_se_train']
 
         percent = self.percents[percent_id]
         print(f'Generating parameters for {percent}% good rows ...')
@@ -322,8 +411,8 @@ class BatchStrategy_SMLR:
         experiment_indices = list(range(l, l+self.n_repeats))
         train_indices = np.random.randint(self.train.shape[1] - self.training_points, size=self.n_repeats)
         test_indices = np.random.randint(len(self.test), size=self.n_repeats)
-        data = Parallel(n_jobs=-1)(delayed(self.run_single)\
-                            (experiment_indices[k], train_indices[k], test_indices[k], W_ins[k], b_ins[k], partition, save_data)\
+        data = Parallel(n_jobs=-1)(delayed(self.run_single_)\
+                            (experiment_indices[k], train_indices[k], test_indices[k], W_ins[k], b_ins[k], partition, length, save_data)\
                             for k in range(self.n_repeats))
         print('Documenting results ...')#, len(columns), len(data[0]))
         pd.DataFrame(data, columns=columns, dtype=float)\
@@ -332,7 +421,7 @@ class BatchStrategy_SMLR:
 
 
     @ut.timer
-    def run_single_partition(self, partition, save_data=False, batch_size=500):
+    def run_single_partition(self, partition, length, save_data=False, batch_size=500):
         """
         Description: runs all the experiments, documents W_in, b_in, W, forecast times and errors
         """
@@ -342,7 +431,7 @@ class BatchStrategy_SMLR:
             os.remove(file_path)
         columns = ['l', 'train_index', 'test_index', '||W_in||', '||b_in||', '||W||', 'good_rows_W_in', 'linear_rows_W_in', 'extreme_rows_W_in',\
                    'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
-                   '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W']
+                   '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W', 'tau_f_se_train']
 
         for batch in range(int(self.n_repeats/batch_size)):
             print(f'Working on batch {batch} ...')
@@ -351,14 +440,42 @@ class BatchStrategy_SMLR:
             experiment_indices = list(range(l, l+batch_size))
             train_indices = np.random.randint(self.train.shape[1] - self.training_points, size=batch_size)
             test_indices = np.random.randint(len(self.test), size=batch_size)
-            data = Parallel(n_jobs=-1)(delayed(self.run_single)\
-                                (experiment_indices[k], train_indices[k], test_indices[k], W_ins[k], b_ins[k], partition, save_data)\
+            data = Parallel(n_jobs=-1)(delayed(self.run_single_)\
+                                (experiment_indices[k], train_indices[k], test_indices[k], W_ins[k], b_ins[k], partition, length, save_data)\
                                 for k in range(batch_size))
             print('Documenting results ...')#, len(columns), len(data[0]))
             pd.DataFrame(data, columns=columns, dtype=float)\
                         .to_csv(file_path, mode='a', index=False, header=not os.path.exists(file_path))
             del data
             l += batch_size  
+
+        
+    @ut.timer
+    def run_single_partition_multi_valid(self, partition, length, save_data=False, batch_size=500):
+        """
+        Description: runs all the experiments, documents W_in, b_in, W, forecast times and errors
+        """
+        l = 0
+        file_path = '{}/batch_data.csv'.format(self.save_folder)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        columns = ['l', 'train_index', 'test_index', '||W_in||', '||b_in||', '||W||', 'good_rows_W_in', 'linear_rows_W_in', 'extreme_rows_W_in',\
+                   'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
+                   '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W', 'tau_f_se_train']
+
+        for batch in range(int(self.n_repeats/batch_size)):
+            print(f'Working on batch {batch} ...')
+            W_ins, b_ins = self.sampler.sample_parallel(partition, batch_size)
+            print('Running experiments ...')
+            experiment_indices = list(range(l, l+batch_size))
+            data = Parallel(n_jobs=-1)(delayed(self.run_single_)\
+                                (experiment_indices[k], 0, None, W_ins[k], b_ins[k], partition, length, save_data)\
+                                for k in range(batch_size))
+            print('Documenting results ...')#, len(columns), len(data[0]))
+            pd.DataFrame(data, columns=columns, dtype=float)\
+                        .to_csv(file_path, mode='a', index=False, header=not os.path.exists(file_path))
+            del data
+            l += batch_size 
 
          
             
@@ -417,6 +534,33 @@ class BatchStrategyAnalyzer_SMLR:
         zc_e = self.count_zero_rows_entry(extreme.T, self.limits_W)
 
         return l, sq_err, zc_g, zc_l, zc_e
+    
+
+    def count_zero_cols(self, l, limits_W, good, linear):
+        """
+        Description: computes forecast time tau_f for the computed surrogate model
+
+        Args:
+            l: surrogate model index
+            limits_W: limits for entries of W to be called small
+            good: fraction of good rows
+            linear: fraction of linear rows
+        """
+        model = self.get_model(l)
+   
+        
+        ng, nl = int(good*self.D_r), int(linear*self.D_r)
+
+        good = model.W[:, :ng]
+        linear = model.W[:, ng:ng+nl]
+        extreme = model.W[:, ng+nl:]
+
+        zc_g = self.count_zero_rows_entry(good.T, limits_W)
+        zc_l = self.count_zero_rows_entry(linear.T, limits_W)
+        zc_e = self.count_zero_rows_entry(extreme.T, limits_W)
+        zc = zc_g + zc_l + zc_e
+
+        return l, zc_g/self.D_r, zc_l/self.D_r, zc_e/self.D_r, zc/self.D_r
 
 
     def compute_training_error(self, l, train, train_index, length, W_norm, mse):
@@ -447,6 +591,9 @@ class BatchStrategyAnalyzer_SMLR:
             return getattr(np, func)(arr)
         
 
+    def avg_sup_col(self, W):
+        return np.max(W, axis=0).mean()
+
 
     def compute_max_mean(self, l, i, j):
         W = np.abs(self.get_W(l))
@@ -454,13 +601,14 @@ class BatchStrategyAnalyzer_SMLR:
         W_g = W[:, :i]
         W_l = W[:, i:i+j]
         W_e = W[:, i+j:]
-        return self.stat('max', W), self.stat('min', W), self.stat('mean', W), self.stat('median', W),\
-               self.stat('max', W_g), self.stat('min', W_g), self.stat('mean', W_g), self.stat('median', W_g),\
-               self.stat('max', W_l), self.stat('min', W_l), self.stat('mean', W_l), self.stat('median', W_l),\
-               self.stat('max', W_e), self.stat('min', W_e), self.stat('mean', W_e), self.stat('median', W_e),\
+        return self.stat('max', W), self.stat('min', W), self.stat('mean', W), self.stat('median', W), self.avg_sup_col(W),\
+               self.stat('max', W_g), self.stat('min', W_g), self.stat('mean', W_g), self.stat('median', W_g), self.avg_sup_col(W_g),\
+               self.stat('max', W_l), self.stat('min', W_l), self.stat('mean', W_l), self.stat('median', W_l), self.avg_sup_col(W_l),\
+               self.stat('max', W_e), self.stat('min', W_e), self.stat('mean', W_e), self.stat('median', W_e), self.avg_sup_col(W_e),\
                self.count_zero_rows_entry(W_g.T, self.limits_W) / self.D_r,\
                self.count_zero_rows_entry(W_l.T, self.limits_W) / self.D_r,\
-               self.count_zero_rows_entry(W_e.T, self.limits_W) / self.D_r
+               self.count_zero_rows_entry(W_e.T, self.limits_W) / self.D_r,\
+               
                
 
                                                
@@ -483,7 +631,7 @@ class BatchStrategyAnalyzer_SMLR:
         dx = 100./percents
         percents = np.arange(0., 100. + dx, dx) / 100.
         for percent in percents:
-            print(f'Computing error for {percent} good rows ...')
+            print(f'Computing error for {percent} good rows at D_r={self.D_r}...')
             experiment_indices = list(range(l, l+self.n_repeats))
             # linear = data['linear_rows_W_in'][l: l+self.n_repeats]
             start = time.time()
@@ -504,6 +652,44 @@ class BatchStrategyAnalyzer_SMLR:
         data['zc_linear'] = new_data['zc_linear']
         data['zc_extreme'] = new_data['zc_extreme'] 
         data.to_csv(f'{self.save_folder}/batch_data.csv', index=False)
+
+
+    @ut.timer
+    def compute_zc(self, limits_W, percents=50):
+        l = 0
+        data = self.get_data()
+        new_data = {}
+        new_data['zc_good'] = []
+        new_data['zc_linear'] = []
+        new_data['zc_extreme'] = []
+        new_data['0_cols_W'] = [] 
+        dx = 100./percents
+        percents = np.arange(0., 100. + dx, dx) / 100.
+        for percent in percents:
+            print(f'Counting zero cols for {percent} good rows at D_r={self.D_r}...')
+            experiment_indices = list(range(l, l+self.n_repeats))
+            # linear = data['linear_rows_W_in'][l: l+self.n_repeats]
+            start = time.time()
+            # with parallel_config(backend='threading', n_jobs=-1):
+            #     results = Parallel(n_jobs=-1)(delayed(self.compute_error)\
+            #                     (experiment_indices[k], test, good[k], linear[k]) for k in range(self.n_repeats))
+            results = [self.count_zero_cols(experiment_indices[k], limits_W, percent, 0.5*(1.-percent)) for k in range(self.n_repeats)]
+            results = np.array(results).T
+            new_data['zc_good'] += list(results[1])
+            new_data['zc_linear'] += list(results[2])
+            new_data['zc_extreme'] += list(results[3]) 
+            new_data['0_cols_W'] += list(results[4])   
+            end = time.time()
+            print(f'Time taken for batch of counting = {end-start:.2f}s')
+            l += self.n_repeats
+        data['zc_good'] = new_data['zc_good']
+        data['zc_linear'] = new_data['zc_linear']
+        data['zc_extreme'] = new_data['zc_extreme']
+        data['0_cols_W'] = new_data['0_cols_W']
+        data.to_csv(f'{self.save_folder}/batch_data.csv', index=False)
+        self.limits_W = limits_W
+        self.set_config('limits_W', limits_W)
+
 
         
     @ut.timer
@@ -544,11 +730,11 @@ class BatchStrategyAnalyzer_SMLR:
         data.to_csv(f'{self.save_folder}/batch_data.csv', index=False)
 
     
-    def train_loss(self, l, train, train_index, length):
+    def train_loss(self, l, train, train_index, length, penalty=True):
         model = self.get_model(l)
         train_index = int(train_index)
-        return l, np.sum((model.forecast_m(train[:, train_index:train_index+length]) - train[:, train_index+1:train_index+length+1])**2) + self.beta * np.sum(model.W**2)
-    
+        penalty = self.beta * np.sum(model.W**2) if penalty else 0.
+        return l, np.sum((model.forecast_m(train[:, train_index:train_index+length]) - train[:, train_index+1:train_index+length+1])**2) + penalty
 
     def test_loss(self, l, test, dt=0.02, Lyapunov_time=1./0.91, penalty=True):
         model = self.get_model(l)
@@ -597,20 +783,21 @@ class BatchStrategyAnalyzer_SMLR:
     
     
     @ut.timer
-    def compute_train_loss(self, train):
+    def compute_train_loss(self, train, length=None, penalty=True, dt=0.02, Lyapunov_time=1./0.91):
         l = 0
         data = self.get_data()
         new_data = {}
         new_data['train_loss'] = []
         total_exps = len(data['l'])
-      
+        if length is None:
+            length = round(2.0*Lyapunov_time/dt)
         for percent in range(int(total_exps/self.n_repeats)):
             print(f'Computing loss for percent id: {percent} ...')
             experiment_indices = list(range(l, l+self.n_repeats))
             train_indices = data['train_index'].to_numpy()[l: l+self.n_repeats]
             start = time.time()
             with parallel_config(backend='threading', n_jobs=-1):
-                results = Parallel(n_jobs=-1)(delayed(self.train_loss)(experiment_indices[k], train, train_indices[k], self.training_points) for k in range(self.n_repeats))
+                results = Parallel(n_jobs=-1)(delayed(self.train_loss)(experiment_indices[k], train, train_indices[k], length, penalty) for k in range(self.n_repeats))
             results = np.array(results).T
             new_data['train_loss'] += list(results[1])
             end = time.time()
@@ -696,19 +883,23 @@ class BatchStrategyAnalyzer_SMLR:
         keys = ['|W|_max',
                 '|W|_min', 
                 '|W|_mean',
-                '|W|_median',     
+                '|W|_median',
+                '|W|_avg_sup_col',     
                 '|W_g|_max',
                 '|W_g|_min', 
                 '|W_g|_mean',
-                '|W_g|_median',  
+                '|W_g|_median',
+                '|W_g|_avg_sup_col',
                 '|W_l|_max',
                 '|W_l|_min', 
                 '|W_l|_mean',
-                '|W_l|_median', 
+                '|W_l|_median',
+                '|W_l|_avg_sup_col', 
                 '|W_e|_max',
                 '|W_e|_min', 
                 '|W_e|_mean',
-                '|W_e|_median', 
+                '|W_e|_median',
+                '|W_e|_avg_sup_col', 
                 'zc_good',
                 'zc_linear',
                 'zc_extreme'] 
@@ -749,6 +940,13 @@ class BatchStrategyAnalyzer_SMLR:
         for key in config:
             setattr(self, key, config[key])
         self.percents = np.unique(self.get_data()['good_rows_W_in'])
+        return config
+
+    def set_config(self, key, value):
+        config = self.get_config()
+        config[key] = value
+        with open('{}/config.json'.format(self.save_folder), 'w') as f:
+            f.write(json.dumps(config))
 
                     
 
