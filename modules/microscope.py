@@ -490,7 +490,7 @@ class MicroscopeExtremeToGoodViewer:
         axs[0].set_xticks([])
         axs[1].set_xticks([])
         axs[-1].set_xlabel('j', fontsize=13)
-        axs[0].legend(fontsize=13)
+        axs[-1].legend(fontsize=13, loc=(0.65, 0.38))
         bf = self.data['avg_bad_features'][l]
         er = self.data['rmse'][l]**2
         wn = self.data['||W||'][l]
