@@ -477,7 +477,7 @@ class MicroscopeExtremeToGoodViewer:
             axs[i].scatter(x+1, [max(W[:, j])/c for j in x], c=u'red', s=100, label=r'$\mathcal{N}^0$', marker='.')
             axs[i].set_ylabel(r'$\frac{{\|\mathbf{{W}}^{{j}}\|_\infty}}{{\|\mathbf{{W}}\|_\infty}}$', fontsize=18)
             axs[i].set_xlim((1, self.D_r))
-            axs[i].set_title(f'k={l}')
+            axs[i].set_title(fr'$N_g$={l}')
             # axs[i].legend()
             
         
@@ -491,9 +491,9 @@ class MicroscopeExtremeToGoodViewer:
         axs[1].set_xticks([])
         axs[-1].set_xlabel('j', fontsize=13)
         axs[-1].legend(fontsize=13, loc=(0.65, 0.38))
-        bf = self.data['avg_bad_features'][l]
-        er = self.data['rmse'][l]**2
-        wn = self.data['||W||'][l]
+        # bf = self.data['avg_bad_features'][l]
+        # er = self.data['rmse'][l]**2
+        # wn = self.data['||W||'][l]
         # zc = self.D_r-cols.sum()
 
         # fig.suptitle(f'avg bad features={bf:.2f}, error={er:.2f}, # zero cols={zc}, ||W||={wn:.2f}\n\
