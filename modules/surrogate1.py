@@ -1033,6 +1033,23 @@ class BatchStrategyAnalyzer_SMLR:
             std = BSpline(*tck)(self.percents)
         return mean, std
     
+
+    def get_line_log(self, quantity, spline=0):
+        m = len(self.percents)
+        mean, std = np.zeros(m), np.zeros(m)
+        data = pd.read_csv('{}/batch_data.csv'.format(self.save_folder))
+        for i in range(m):
+            good = self.percents[i]
+            array = np.log(data.loc[data['good_rows_W_in'] == good][quantity])
+            mean[i], std[i] = array.mean(), array.std()
+        if spline > 0:
+            tck = splrep(self.percents, mean, s=spline)
+            mean = BSpline(*tck)(self.percents)
+            tck = splrep(self.percents, std, s=spline)
+            std = BSpline(*tck)(self.percents)
+        return mean, std
+    
+    
     def get_ratio_line(self, quantity1, quantity2):
         m = len(self.percents)
         mean, std = np.zeros(m), np.zeros(m)
