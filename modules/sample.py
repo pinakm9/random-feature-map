@@ -621,7 +621,7 @@ class GoodRowSampler:
             return np.array([self.lims[d, (1+signs[d]) % 2] for d in range(self.dim)])
         
 
-    def sample_(self):
+    def sample_(self, steps=10):
         flag = np.random.randint(2)
         # assign signs for the entries of the row
         s = np.random.randint(2, size=self.dim)
@@ -635,13 +635,13 @@ class GoodRowSampler:
 
         b = np.random.uniform(*lims)
         sampler = InequalitySampler3(x_minus, x_plus, lims[0], lims[1], b, s)
-        return sampler.single_sample(x=np.zeros(self.dim), steps=1), b
+        return sampler.single_sample(x=np.zeros(self.dim), steps=10), b
     
     # @ut.timer
-    def sample(self, n_sample):
+    def sample(self, n_sample, steps=10):
         rows, bs = np.zeros((n_sample, self.dim)), np.zeros(n_sample)
         for n in range(n_sample):
-            rows[n, :], bs[n] = self.sample_()
+            rows[n, :], bs[n] = self.sample_(steps)
         return rows, bs
     
     # @ut.timer
@@ -696,7 +696,7 @@ class BadRowSamplerLinear(GoodRowSampler):
         
 
 
-    def sample_(self):
+    def sample_(self, steps=10):
         # assign signs for the entries of the row
         s = np.random.randint(2, size=self.dim)
         # set up inequalities
@@ -705,7 +705,7 @@ class BadRowSamplerLinear(GoodRowSampler):
 
         b = np.random.uniform(-self.m, self.m)
         sampler = InequalitySampler3(x_minus, x_plus, -self.m, self.m, b, s)
-        return sampler.single_sample(x=np.zeros(self.dim), steps=1), b
+        return sampler.single_sample(x=np.zeros(self.dim), steps=steps), b
     
 
     def test_rows(self, rows, bs):
@@ -785,7 +785,7 @@ class BadRowSamplerExtreme(GoodRowSampler):
         
 
 
-    def sample_(self):
+    def sample_(self, steps=10):
         flag = np.random.randint(2)
         # assign signs for the entries of the row
         s = np.random.randint(2, size=self.dim)
@@ -800,7 +800,7 @@ class BadRowSamplerExtreme(GoodRowSampler):
             b = np.random.uniform(-2.*self.M, -self.M)
             sampler = InequalitySampler5(x_plus, -self.M, b, s)
         
-        return sampler.single_sample(x=np.zeros(self.dim), steps=1), b
+        return sampler.single_sample(x=np.zeros(self.dim), steps=steps), b
     
 
     def test_rows(self, rows, bs):

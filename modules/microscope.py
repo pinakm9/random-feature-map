@@ -450,7 +450,7 @@ class MicroscopeExtremeToGoodViewer:
         plt.show()
 
 
-    def plot5(self, ls, c0, c1, l0, l1, limits=[-0.5, 0.5], file_path=None):
+    def plot5(self, ls, c0, c1, l0, l1, limits=[-0.5, 0.5], file_path=None, N0=True):
         fig = plt.figure(figsize=(12, 7))
         ax_1 = fig.add_subplot(311)
         ax_2 = fig.add_subplot(312)
@@ -474,7 +474,7 @@ class MicroscopeExtremeToGoodViewer:
             axs[i].plot(range(1, l+1), y1, label=l0, c=c0)
             axs[i].plot(range(l, self.D_r+1), y2, label=l1, c=c1)
             x = np.array([j for j, e in enumerate(cols) if not e])
-            axs[i].scatter(x+1, [max(W[:, j])/c for j in x], c=u'red', s=100, label=r'$\mathcal{N}^0$', marker='.')
+            axs[i].scatter(x+1, [max(W[:, j])/c for j in x], c=u'red', s=100, label=r'$\mathcal{N}^0$' if N0 else '', marker='.')
             axs[i].set_ylabel(r'$\frac{{\|\mathbf{{W}}^{{j}}\|_\infty}}{{\|\mathbf{{W}}\|_\infty}}$', fontsize=18)
             axs[i].set_xlim((1, self.D_r))
             axs[i].set_title(fr'$N_g$={l}')
