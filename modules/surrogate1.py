@@ -307,7 +307,7 @@ class BatchStrategy_SMLR:
         results = [l, i, j, np.linalg.norm(model.W_in)/self.D_r,\
                    np.linalg.norm(model.b_in)/self.D_r, np.linalg.norm(model.W)/self.D_r] +\
                    [part/float(self.D_r) for part in partition]
-        results += self.compute_error(model, j)
+        # results += self.compute_error(model, j)
         results += self.count(model)
 
         return results
@@ -324,7 +324,7 @@ class BatchStrategy_SMLR:
         if os.path.exists(file_path):
             os.remove(file_path)
         columns = ['l', 'train_index', 'test_index', '||W_in||', '||b_in||', '||W||', 'good_rows_W_in', 'linear_rows_W_in', 'extreme_rows_W_in',\
-                   'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
+                   #'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
                    '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W']
         
         for percent in self.percents:

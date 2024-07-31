@@ -88,7 +88,7 @@ class InequalitySampler0:
             
 
     @ut.timer
-    def sample(self, n, steps=10, **kwargs):
+    def sample(self, n, steps=1, **kwargs):
         """
         Description: Samples n points from the feasible region with kwargs specified for intersection_with_bisection
         """
@@ -621,7 +621,7 @@ class GoodRowSampler:
             return np.array([self.lims[d, (1+signs[d]) % 2] for d in range(self.dim)])
         
 
-    def sample_(self, steps=10):
+    def sample_(self, steps=1):
         flag = np.random.randint(2)
         # assign signs for the entries of the row
         s = np.random.randint(2, size=self.dim)
@@ -635,10 +635,10 @@ class GoodRowSampler:
 
         b = np.random.uniform(*lims)
         sampler = InequalitySampler3(x_minus, x_plus, lims[0], lims[1], b, s)
-        return sampler.single_sample(x=np.zeros(self.dim), steps=10), b
+        return sampler.single_sample(x=np.zeros(self.dim), steps=1), b
     
     # @ut.timer
-    def sample(self, n_sample, steps=10):
+    def sample(self, n_sample, steps=1):
         rows, bs = np.zeros((n_sample, self.dim)), np.zeros(n_sample)
         for n in range(n_sample):
             rows[n, :], bs[n] = self.sample_(steps)
@@ -696,7 +696,7 @@ class BadRowSamplerLinear(GoodRowSampler):
         
 
 
-    def sample_(self, steps=10):
+    def sample_(self, steps=1):
         # assign signs for the entries of the row
         s = np.random.randint(2, size=self.dim)
         # set up inequalities
@@ -785,7 +785,7 @@ class BadRowSamplerExtreme(GoodRowSampler):
         
 
 
-    def sample_(self, steps=10):
+    def sample_(self, steps=1):
         flag = np.random.randint(2)
         # assign signs for the entries of the row
         s = np.random.randint(2, size=self.dim)
