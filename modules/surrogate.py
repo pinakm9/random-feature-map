@@ -13,6 +13,8 @@ import pandas as pd
 import json
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
+import torch
+from torch.autograd.functional import jacobian
 
 def uniform_W_in(D, D_r, w):
     return np.random.uniform(low=-w, high=w, size=(D_r, D)) 
@@ -87,6 +89,18 @@ class SurrogateModel_LR:
         Returns: forecasted state
         """     
         return self.W @ self.phi(u)
+    
+    def get_tensor_map(self):
+        """
+        Description: returns a torch-tensorized version of the one step surrogate map 
+        """
+        W_in = torch.from_numpy(self.W_in)
+        b_in = torch.from_numpy(self.b_in)
+        W = torch.from_numpy(self.W)
+        def psi(x):
+            return W@torch.tanh(W_in@x+b_in)
+        return psi
+        
     
     def forecast_m(self, u):
         """

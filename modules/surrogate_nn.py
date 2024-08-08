@@ -66,6 +66,7 @@ class SurrogateModel_NN:
         Returns: forecasted state
         """
         return self.net(torch.from_numpy(u)).detach().numpy()
+
     
     
     
