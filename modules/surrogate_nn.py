@@ -103,6 +103,17 @@ class SurrogateModel_NN:
         self.net.load_state_dict(new_state_dict, strict=False)
         self.config |= {'L0': L0, 'L1': L1, 'partition': partition}
 
+    def init_with_rf_xy(self, L0, L1, beta, x, y, partition):
+        self.sampler = sm.MatrixSampler(L0, L1, x.T)
+        W_in, b_in = self.sampler.sample_(partition)
+        rf = sr.SurrogateModel_LR(self.D, self.D_r, W_in, b_in)
+        rf.compute_W_xy(x, y, beta=beta)
+        W_in = torch.Tensor(rf.W_in.astype(DTYPE))
+        b_in = torch.Tensor(rf.b_in.astype(DTYPE))
+        W = torch.Tensor(rf.W.astype(DTYPE))
+        new_state_dict = OrderedDict({'0.weight': W_in, '0.bias': b_in, '2.weight': W})
+        self.net.load_state_dict(new_state_dict, strict=False)
+        self.config |= {'L0': L0, 'L1': L1, 'partition': partition}
 
     @ut.timer
     def learn(self, trajectory, steps=100, learning_rate=1e-4, beta=4e-5, log_interval=100, save_interval=100,\
@@ -142,6 +153,78 @@ class SurrogateModel_NN:
             if batch_size != 'GD':
                 x, y = next(self.dataloader.__iter__())
             loss = self.loss_fn(x, y, beta)
+            # Backpropagation
+            loss.backward()
+            self.optimizer.step()
+
+            # log training 
+            if step % log_interval == 0: 
+                loss_ = loss.item()
+                end = time.time()
+                lr = self.optimizer.param_groups[0]['lr']
+                change = (loss_ - last_loss) / last_loss
+                self.log_row['iteration'] = step
+                self.log_row['loss'] = [loss_]
+                self.log_row['learning_rate'] = [lr]
+                self.log_row['change'] = [change]
+                self.log_row['runtime'] = [end - start + time_offset]
+                print(f"step: {step} loss: {loss_:>7f} time: {end-start:.4f} lr: {lr:.6f},  change: {change*100:.2f}%")
+                pd.DataFrame(self.log_row).to_csv(self.train_log, mode='a', index=False, header=False)
+                
+                if dstep % lr_scheduler.update_frequency == 0 and change > lr_scheduler.min_change:
+                    if change < 0.:
+                        sign = +1.
+                    else:
+                        sign = -1.
+                    lr_scheduler.step(sign, last_loss, x, y, beta)
+                else:
+                    last_loss = loss_ + 0.
+            
+            if step % save_interval == 0:
+                torch.save(self.net, self.save_folder + f'/{self.name}_{step}')
+            
+            dstep += 1
+            step += 1
+            
+
+    @ut.timer
+    def learn_xy(self, x, y, steps=100, learning_rate=1e-4, beta=4e-5, log_interval=100, save_interval=100,\
+              batch_size='GD', last_folder=None, **rate_params):
+        
+        train_size = x.shape[1] - 1
+        self.train_log = self.save_folder + '/train_log.csv'
+        self.config_file = self.save_folder + '/config.json'
+        self.log_row = {'iteration': [], 'loss': [], 'learning_rate': [], 'runtime': [], 'change': []}
+        self.config |= {'device': self.device, 'steps': steps, 'initial_rate':learning_rate,\
+                    'train_size': train_size, 'name': self.name, 'beta': beta, 'batch_size': batch_size, 'log_interval':log_interval,\
+                    'save_interval': save_interval}
+        self.config |= rate_params
+        with open(self.config_file, 'w') as fp:
+            json.dump(self.config, fp)
+        
+        self.beta = beta
+        x = torch.Tensor(x.T)
+        y = torch.Tensor(y.T)
+        
+        if batch_size != 'GD':
+            dataset = TensorDataset(x, y)
+            sampler = RandomSampler(dataset, replacement=False, num_samples=INFINITY)
+            self.dataloader = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
+        # Set the model to training mode - important for batch normalization and dropout layers
+        # Unnecessary in this situation but added for best practices
+        dstep = 0
+        step, last_loss, time_offset = self.init_training(last_folder)
+        # scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=drop)
+        lr_scheduler = AdaptiveRateBS(self, **rate_params)
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
+        self.net.train()
+        start = time.time()
+        while dstep < steps:
+            # Compute prediction and loss
+            self.optimizer.zero_grad()
+            if batch_size != 'GD':
+                x, y = next(self.dataloader.__iter__())
+            loss =  self.loss_fn(x, y, beta)
             # Backpropagation
             loss.backward()
             self.optimizer.step()
@@ -428,14 +511,32 @@ class SurrogateModel_NN:
 
 
 class SurrogateModel_NN_multi(SurrogateModel_NN):
-    def __init__(self, D, D_r):
-        super().__init__(D, D_r)
+    def __init__(self, D, D_r, name='nn', save_folder='.'):
+        super().__init__(D, D_r, name, save_folder)
         self.net = nn.Sequential(nn.Linear(D, D_r, bias=True), nn.Tanh(),\
                                  nn.Linear(D_r, D_r, bias=True), nn.Tanh(),\
                                  nn.Linear(D_r, D_r, bias=True), nn.Tanh(),\
                                  nn.Linear(D_r, D_r, bias=True), nn.Tanh(),\
                                  nn.Linear(D_r, D, bias=False))
     def loss_fn(self, x, y, beta):
-        return torch.norm(self.net(x) - y)**2 + beta*torch.norm(self.net.state_dict()['8.weight'])**2
+        return torch.sum((self.net(x) - y)**2) + beta*torch.norm(self.net[-1].weight**2)
 
 
+class SurrogateModel_NN_multi_bn(SurrogateModel_NN):
+    def __init__(self, D, D_r, name='nn', save_folder='.'):
+        super().__init__(D, D_r, name, save_folder)
+        self.net = nn.Sequential(nn.Linear(D, D_r, bias=True), nn.BatchNorm1d(D_r), nn.Tanh(), \
+                                 nn.Linear(D_r, D_r, bias=True), nn.BatchNorm1d(D_r), nn.Tanh(),\
+                                 nn.Linear(D_r, D_r, bias=True), nn.BatchNorm1d(D_r), nn.Tanh(),\
+                                 nn.Linear(D_r, D_r, bias=True), nn.BatchNorm1d(D_r), nn.Tanh(),
+                                 nn.Linear(D_r, D, bias=False))
+    def loss_fn(self, x, y, beta):
+        return torch.sum((self.net(x) - y)**2) + beta*torch.norm(self.net[-1].weight**2)
+    
+class SurrogateModel_NN_bn(SurrogateModel_NN):
+    def __init__(self, D, D_r, name='nn', save_folder='.'):
+        super().__init__(D, D_r, name, save_folder)
+        self.net = nn.Sequential(nn.Linear(D, D_r, bias=True), nn.BatchNorm1d(D_r), nn.Tanh(),\
+                                 nn.Linear(D_r, D, bias=False))
+    def loss_fn(self, x, y, beta):
+        return torch.sum((self.net(x) - y)**2) #+ beta*torch.norm(self.net[-1].weight**2)

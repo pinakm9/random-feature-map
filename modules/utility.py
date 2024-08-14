@@ -160,4 +160,38 @@ def grid_heat_plotter(x, y, data_list, xlabel, ylabel, label_list, n_rows, n_col
 	else:
 		plt.close()
 
+class ExperimentLogger:
+    def __init__(self, folder, description):
+        self.folder = folder
+        self.description = description
+        self.objects = []
+        self.logFile = folder + '/experiment_log.txt'
+        with open(self.logFile, 'w') as file:
+            file.write("=======================================================================\n")
+            file.write("This is a short description of this experiment\n")
+            file.write("=======================================================================\n")
+            descriptionWithNewLine= description.replace('. ', '.\n')
+            file.write(f"{descriptionWithNewLine}\n\n\n")
+        
+    def addSingle(self, object):
+        self.objects.append(object)
+        with open(self.logFile, 'a') as file:
+            file.write("=======================================================================\n")
+            file.write(f"Object: {object.name}\n")
+            file.write("=======================================================================\n")
+            for key, value in object.__dict__.items():
+                file.write(f"{key} = {value}\n")
+                file.write("-----------------------------------------------------------------------\n")
+            file.write("\n\n")
+    
+    def add(self, *objects):
+        for object in objects:
+            self.addSingle(object)
 
+def makeDir(folder):
+	if not os.path.exists(folder):
+		os.makedirs(folder)
+
+def figStart(figsize):
+	fig = plt.figure(figsize=figsize)
+	return fig, fig.add_subplot(111)

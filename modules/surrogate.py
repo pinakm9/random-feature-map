@@ -78,7 +78,22 @@ class SurrogateModel_LR:
         R = np.tanh(self.W_in @ obs[:, :-1] + self.b_in[:, np.newaxis])#np.hstack([self.phi(uo).reshape(-1, 1) for uo in obs.T])
         self.W = (Uo@R.T) @ np.linalg.solve(R@R.T + beta*self.identity_r, self.identity_r) 
         # return self.W
+        
+    def compute_W_xy(self, x, y, beta):
+        """
+        Description: computes W with Ridge regression
 
+        Args:
+            x: input
+            y: output
+            beta: regularization paramter     
+        """
+        R = np.tanh(self.W_in @ x + self.b_in[:, np.newaxis])#np.hstack([self.phi(uo).reshape(-1, 1) for uo in obs.T])
+        self.W = (y@R.T) @ np.linalg.solve(R@R.T + beta*self.identity_r, self.identity_r)
+        self.final_loss = np.sum((self.W@R-y)**2) + beta*np.sum(self.W**2)   
+        # return self.W
+
+    
     def forecast(self, u):
         """
         Description: forecasts for a single time step
