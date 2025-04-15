@@ -132,7 +132,7 @@ class BatchStrategy_SMLR:
                 tau_f_rmse = l-1
 
 
-            l = np.argmax(se_ > self.error_threshold)
+            l = np.argmax(se_ > self.error_threshold)  
             if l == 0:
                 tau_f_se = self.validation_points
             else:
@@ -145,31 +145,6 @@ class BatchStrategy_SMLR:
             tau_f_se *= (self.dt / self.Lyapunov_time)
             return tau_f_rmse, tau_f_se, rmse, se
 
-        else:
-            tau_f_rmse, tau_f_se, rmse, se = 0., 0., 0., 0.
-            for validation_ in self.test:
-                prediction = model.multistep_forecast(validation_[:, 0], self.validation_points)
-                se_ = np.linalg.norm(validation_ - prediction, axis=0)**2 / np.linalg.norm(validation_, axis=0)**2
-                mse_ = np.cumsum(se_) / np.arange(1, len(se_)+1)
-
-
-                l = np.argmax(mse_ > self.error_threshold)
-                if l == 0:
-                    tau_f_rmse += self.validation_points * (self.dt / self.Lyapunov_time)
-                else:
-                    tau_f_rmse += (l-1) * (self.dt / self.Lyapunov_time)
-
-
-                l = np.argmax(se_ > self.error_threshold)
-                if l == 0:
-                    tau_f_se += self.validation_points * (self.dt / self.Lyapunov_time)
-                else:
-                    tau_f_se += (l-1) * (self.dt / self.Lyapunov_time)
-
-                rmse += np.sqrt(mse_[-1])
-                se += se_.mean()
-            n = len(self.test)
-            return tau_f_rmse/n, tau_f_se/n, rmse/n, se/n
         
 
     @ut.timer
