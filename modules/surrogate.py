@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 import torch
 from torch.autograd.functional import jacobian
+from joblib import Parallel, delayed
 
 def uniform_W_in(D, D_r, w):
     return np.random.uniform(low=-w, high=w, size=(D_r, D)) 
@@ -401,9 +402,30 @@ class BatchRunAnalyzer_SMLR:
     def count_bad_features(self, i, j, k, validation, threshold=0.998):
         model = self.get_model(i, j, k)
         features = np.abs(np.tanh(model.W_in@validation + model.b_in[:,np.newaxis]))
-        bad = np.sum(features > threshold, axis=0) #/ self.D_r
+        bad = np.sum(features > np.tanh(3.5), axis=0) #/ self.D_r
         return bad.mean()
+    
+    def count_linear_features(self, i, j, k, validation, threshold=np.tanh(0.4)):
+        model = self.get_model(i, j, k)
+        features = np.abs(np.tanh(model.W_in@validation + model.b_in[:,np.newaxis]))
+        linear = np.sum(features < np.tanh(0.4), axis=0) #/ self.D_r
+        return linear.mean()
 
+
+    def count_good_features(self, i, j, k, validation, threshold=0.998):
+        model = self.get_model(i, j, k)
+        features = np.abs(np.tanh(model.W_in@validation + model.b_in[:,np.newaxis]))
+        good = np.sum((features > np.tanh(0.4)) & (features < np.tanh(3.5)), axis=0) #/ self.D_r
+        return good.mean()
+    
+    def count_features(self, i, j, k, validation):
+        model = self.get_model(i, j, k)
+        features = np.abs(np.tanh(model.W_in@validation + model.b_in[:,np.newaxis]))
+        a, b = np.tanh(0.4), np.tanh(3.5)
+        good = np.sum((features > a) & (features < b), axis=0)
+        linear = np.sum(features < a, axis=0) #/ self.D_r
+        bad = np.sum(features > b, axis=0) #/ self.D_r
+        return good.mean(), linear.mean(), bad.mean()
 
     def get_extreme_vector_same(self, xlims, row):
         return np.array([xlims[i, j] for i, j in enumerate((row > 0).astype(int))])
@@ -452,32 +474,86 @@ class BatchRunAnalyzer_SMLR:
         zr = np.zeros(self.n_models)
         zr = zr.reshape(self.sqrt_n_models, self.sqrt_n_models, -1)
         zc = np.zeros_like(zr)
+        gf = np.zeros_like(zr)
         bf = np.zeros_like(zr)
+        lf = np.zeros_like(zr)
         avg_abs_col_sum = np.zeros_like(zc)
         n_good_rows = np.zeros_like(zc)
         xlims = self.get_xlims(validation)
         data = pd.read_csv('{}/batch_data.csv'.format(self.save_folder))
         l = 0
+        # Inside your method, define a helper function that processes each k value.
+        def process_k(i, j, k):
+            # Read the data files.
+            W = np.genfromtxt(self.W_folder + '/W_{}_{}_{}.csv'.format(i, j, k), delimiter=',')
+            W_in = np.genfromtxt(self.W_in_folder + '/W_in_{}_{}_{}.csv'.format(i, j, k), delimiter=',')
+            b_in = np.genfromtxt(self.b_in_folder + '/b_in_{}_{}_{}.csv'.format(i, j, k), delimiter=',')
+            
+            # Compute the metrics.
+            zr_val = self.count_zero_rows_entry(W_in, limits_in)
+            zc_val = self.count_zero_rows_entry(W.T, limits)
+            gf_val, lf_val, bf_val = self.count_features(i, j, k, validation)
+            avg_abs = np.sum(np.abs(W), axis=1).mean()
+            n_good = self.count_good_rows(W_in, b_in, xlims, threshold)
+            
+            # Return the index k and all computed values.
+            return (k, zr_val, zc_val, gf_val, bf_val, lf_val, avg_abs, n_good)
+
         for i in self.w_idx:
             for j in self.b_idx:
-                for k in self.random_idx:
-                    W = np.genfromtxt(self.W_folder + '/W_{}_{}_{}.csv'.format(i, j, k), delimiter=',')
-                    W_in = np.genfromtxt(self.W_in_folder + '/W_in_{}_{}_{}.csv'.format(i, j, k), delimiter=',')
-                    b_in = np.genfromtxt(self.b_in_folder + '/b_in_{}_{}_{}.csv'.format(i, j, k), delimiter=',')
-                    zr[i][j][k], zc[i][j][k] = self.count_zero_rows_entry(W_in, limits_in), self.count_zero_rows_entry(W.T, limits)
-                    bf[i][j][k] = self.count_bad_features(i, j, k, validation, np.tanh(threshold))
-                    avg_abs_col_sum[i][j][k] = np.sum(np.abs(W), axis=1).mean()
-                    n_good_rows[i][j][k] = self.count_good_rows(W_in, b_in, xlims, threshold)
-                    data.loc[l, '0-rows-W_in'] = zr[i][j][k]
-                    data.loc[l, '0-cols-W'] = zc[i][j][k]
+                # Parallelize the innermost loop over k.
+                results = Parallel(n_jobs=-1)(delayed(process_k)(i, j, k) for k in self.random_idx)
+                # The results list maintains the order corresponding to self.random_idx.
+                for res in results:
+                    k, zr_val, zc_val, gf_val, bf_val, lf_val, avg_abs, n_good = res
+                    # Store computed values in the preallocated arrays.
+                    zr[i][j][k] = zr_val
+                    zc[i][j][k] = zc_val
+                    gf[i][j][k] = gf_val
+                    bf[i][j][k] = bf_val
+                    lf[i][j][k] = lf_val
+                    avg_abs_col_sum[i][j][k] = avg_abs
+                    n_good_rows[i][j][k] = n_good
+                    
+                    # Update your DataFrame.
+                    data.loc[l, '0-rows-W_in'] = zr_val
+                    data.loc[l, '0-cols-W'] = zc_val
                     l += 1
-            print('working on experiment#{}'.format(i), end='\r')
+                print('working on experiment#{}-{}'.format(i, j), end='\r')
+
+        data['avg_good_features'] = gf.flatten()
         data['avg_bad_features'] = bf.flatten()
+        data['avg_linear_features'] = lf.flatten()
         data['avg_abs_col_sum_W'] = avg_abs_col_sum.flatten()
         data['good_rows_W_in'] = n_good_rows.flatten()
         data.to_csv('{}/batch_data.csv'.format(self.save_folder), index=None)
 
                     
+    @ut.timer
+    def count_linear(self, validation, limits_in, limits, threshold=3.5):
+        zr = np.zeros(self.n_models)
+        zr = zr.reshape(self.sqrt_n_models, self.sqrt_n_models, -1)
+        lf = np.zeros_like(zr)
+        data = pd.read_csv('{}/batch_data.csv'.format(self.save_folder))
+        l = 0
+        # Inside your method, define a helper function that processes each k value.
+        def process_k(i, j, k):
+            lf_val = self.count_linear_features(i, j, k, validation)
+            # Return the index k and all computed values.
+            return (k, lf_val)
+
+        for i in self.w_idx:
+            for j in self.b_idx:
+                # Parallelize the innermost loop over k.
+                results = Parallel(n_jobs=-1)(delayed(process_k)(i, j, k) for k in self.random_idx)
+                # The results list maintains the order corresponding to self.random_idx.
+                for res in results:
+                    k, lf_val = res
+                    lf[i][j][k] = lf_val
+                    l += 1
+                print('working on experiment#{}-{}'.format(i, j), end='\r')
+
+        
 
     @ut.timer
     def get_mean_std(self, quantity):
