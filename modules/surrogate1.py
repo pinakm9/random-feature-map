@@ -219,35 +219,35 @@ class BatchStrategy_SMLR:
                    np.sum(np.abs(model.W), axis=0).mean() / self.D_r
         
 
-    # @ut.timer
-    def run_single(self, l, i, j, W_in, b_in, partition, save_data=False):
-        """
-        Description: runs experiments for a single value of (w, b) multiple times 
+    # # @ut.timer
+    # def run_single(self, l, i, j, W_in, b_in, partition, save_data=False):
+    #     """
+    #     Description: runs experiments for a single value of (w, b) multiple times 
 
-        Args: 
-            l: index/identifier for the single experiment
-            i: index to select training data
-            j: index to select validation data
-            W_in: parameters for W_in
-            b_in: parameters for b_in
-            partition: partition of row types of W_in
-            save_data: boolean determing wheather to save model
-        """
-        model = sr.SurrogateModel_LR(self.D, self.D_r, W_in, b_in)
-        model.compute_W(self.train[:, i:i+self.training_points], beta=self.beta);
+    #     Args: 
+    #         l: index/identifier for the single experiment
+    #         i: index to select training data
+    #         j: index to select validation data
+    #         W_in: parameters for W_in
+    #         b_in: parameters for b_in
+    #         partition: partition of row types of W_in
+    #         save_data: boolean determing wheather to save model
+    #     """
+    #     model = sr.SurrogateModel_LR(self.D, self.D_r, W_in, b_in)
+    #     model.compute_W(self.train[:, i:i+self.training_points], beta=self.beta);
    
-        if save_data:
-            np.save(self.W_in_folder + '/W_in_{}.npy'.format(l), model.W_in)
-            np.save(self.b_in_folder + '/b_in_{}.npy'.format(l), model.b_in)
-            np.save(self.W_folder + '/W_{}.npy'.format(l), model.W)
+    #     if save_data:
+    #         np.save(self.W_in_folder + '/W_in_{}.npy'.format(l), model.W_in)
+    #         np.save(self.b_in_folder + '/b_in_{}.npy'.format(l), model.b_in)
+    #         np.save(self.W_folder + '/W_{}.npy'.format(l), model.W)
         
-        results = [l, i, j, np.linalg.norm(model.W_in)/self.D_r,\
-                   np.linalg.norm(model.b_in)/self.D_r, np.linalg.norm(model.W)/self.D_r] +\
-                   [part/float(self.D_r) for part in partition]
-        results += self.compute_error(model, j)
-        results += self.count(model)
+    #     results = [l, i, j, np.linalg.norm(model.W_in)/self.D_r,\
+    #                np.linalg.norm(model.b_in)/self.D_r, np.linalg.norm(model.W)/self.D_r] +\
+    #                [part/float(self.D_r) for part in partition]
+    #     results += self.compute_error(model, j)
+    #     results += self.count(model)
 
-        return results
+    #     return results
     
 
     def run_single_(self, l, i, j, W_in, b_in, partition, length, save_data=False):
@@ -307,7 +307,7 @@ class BatchStrategy_SMLR:
         results = [l, i, j, np.linalg.norm(model.W_in)/self.D_r,\
                    np.linalg.norm(model.b_in)/self.D_r, np.linalg.norm(model.W)/self.D_r] +\
                    [part/float(self.D_r) for part in partition]
-        # results += self.compute_error(model, j)
+        results += self.compute_error(model, j)
         results += self.count(model)
 
         return results
@@ -324,7 +324,7 @@ class BatchStrategy_SMLR:
         if os.path.exists(file_path):
             os.remove(file_path)
         columns = ['l', 'train_index', 'test_index', '||W_in||', '||b_in||', '||W||', 'good_rows_W_in', 'linear_rows_W_in', 'extreme_rows_W_in',\
-                   #'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
+                   'tau_f_rmse', 'tau_f_se', 'rmse', 'se',\
                    '0_rows_W_in', '0_cols_W', 'avg_bad_features', 'avg_abs_col_sum_W']
         
         for percent in self.percents:
