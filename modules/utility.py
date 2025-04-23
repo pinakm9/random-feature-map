@@ -195,3 +195,43 @@ def makeDir(folder):
 def figStart(figsize):
 	fig = plt.figure(figsize=figsize)
 	return fig, fig.add_subplot(111)
+
+
+
+def file2str(folder_path, search_string, file_extensions=None, encoding='utf-8'):
+    """
+    Search for files under folder_path that contain search_string.
+
+    Args:
+        folder_path (str): Root directory to search in.
+        search_string (str): Substring to look for.
+        file_extensions (list of str, optional): If provided, only files
+            ending with these extensions (e.g. ['.txt', '.py']) are searched.
+            Case‑insensitive. Defaults to None (all files).
+        encoding (str, optional): File encoding to use when reading.
+            Defaults to 'utf-8'.
+
+    Returns:
+        List[str]: Paths to files where search_string was found.
+    """
+    matches = []
+    # Walk through all subdirectories
+    for root, dirs, files in os.walk(folder_path):
+        for fname in files:
+            # If filtering by extension, skip others
+            if file_extensions is not None:
+                if not any(fname.lower().endswith(ext.lower()) 
+                           for ext in file_extensions):
+                    continue
+
+            path = os.path.join(root, fname)
+            try:
+                with open(path, 'r', encoding=encoding, errors='ignore') as f:
+                    for line in f:
+                        if search_string in line:
+                            matches.append(path)
+                            break  # stop reading this file
+            except Exception as e:
+                # Could log or print a warning here
+                print(f"[Warning] Could not read {path}: {e}")
+    return matches

@@ -84,7 +84,7 @@ class GoodRowSampler:
             else:
                 return -a*d
     
-    @ut.timer
+    # @ut.timer
     def sample_parallel(self, n_rows, sample_b=True):
         """
         Args:
@@ -93,7 +93,7 @@ class GoodRowSampler:
         results = Parallel(n_jobs=-1)(delayed(self.sample_)(sample_b) for _ in range(n_rows))
         return np.array(results)
     
-    @ut.timer
+    # @ut.timer
     def sample(self, n_rows, sample_b=True):
         """
         Args:
